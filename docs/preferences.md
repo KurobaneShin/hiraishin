@@ -117,6 +117,10 @@ max_concurrent = 4
 # Optional command wrapper (e.g. "flock ~/.agy.lock" for single-flight CLIs).
 launch_prefix = []
 
+# Name of the environment variable that holds an API key (glm-claude needs it;
+# endpoint sensors use it). Only the variable name is stored, never the key.
+api_key_env = ""
+
 # Quota windows. Auto-detected when a sensor supports it; typed values act as
 # fallback when a sensor is offline or unavailable.
 [[providers.<provider_id>.windows]]
@@ -471,6 +475,7 @@ duration_hours = 168
 enabled = true
 harness = "glm-claude"
 model = "glm-5.3"
+api_key_env = "ZAI_API_KEY"
 cost_class = "subscription"
 quality_tier = 3
 scarcity_tier = 2
