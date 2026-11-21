@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -169,10 +170,26 @@ func (f *fixture) tickUntil(what string, done func() bool) {
 			return
 		}
 		if time.Now().After(deadline) {
-			f.t.Fatalf("timed out waiting for %s", what)
+			f.t.Fatalf("timed out waiting for %s\n%s", what, f.dump())
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
+}
+
+func (f *fixture) dump() string {
+	var b strings.Builder
+	jobs, _ := f.e.Ledger.Reader().Jobs(context.Background())
+	for _, j := range jobs {
+		fmt.Fprintf(&b, "job %s state=%s provider=%s\n", j.ID, j.State, j.CurrentProvider)
+		atts, _ := f.e.Ledger.Reader().Attempts(context.Background(), j.ID)
+		for _, a := range atts {
+			out, _ := os.ReadFile(filepath.Join(a.Dir, dispatch.OutputFile))
+			pg, _ := os.ReadFile(filepath.Join(a.Dir, dispatch.PgidFile))
+			code, done, _ := dispatch.ExitCode(a.Dir)
+			fmt.Fprintf(&b, "  attempt %d %s exit_reason=%q ended=%v pgid=%q alive=%v exit=%d/%v output=%q\n", a.Num, a.ProviderID, a.ExitReason, !a.EndedAt.IsZero(), pg, dispatch.Alive(a.Dir), code, done, out)
+		}
+	}
+	return b.String()
 }
 
 func (f *fixture) state(id string) func() bool {
