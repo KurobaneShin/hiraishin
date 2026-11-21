@@ -1,6 +1,6 @@
 # hiraishin — Coding-Agent Quota Scheduler & Failover Orchestrator
 
-> **Status: v0.1 in development.** The design (architecture, provider research, preference schema, ADRs, roadmap) is complete; the binary is being built slice by slice against the [v0.1 acceptance criteria](docs/roadmap.md).
+> **Status: v0.1.** Ledger, sensors, scheduler with `why` traces, runtime controls, process/tmux/orca dispatch and worktree failover are implemented and covered by an end-to-end test against the [v0.1 acceptance criteria](docs/roadmap.md). Codex, Gemini, forecasting, learning and the MCP server are [v0.2](docs/roadmap.md).
 
 `hiraishin` tracks the rolling usage windows of your flat-rate coding-agent subscriptions (Claude Max via Claude Code, Kimi Code, Z.AI GLM Coding Plan, Google Antigravity via `agy`, OpenAI Codex CLI, and Gemini CLI), forecasts when each window empties or resets, dispatches work across them according to your rules, and fails over mid-task without losing uncommitted progress.
 
@@ -15,30 +15,38 @@ Today, running several agents across multiple subscriptions creates two opposite
 
 `hiraishin` treats quota as perishable inventory bounded by quality rules you define. It routes work to expiring capacity first whenever that provider meets the task's quality bar, holds scarce high-tier quota for the roles that need it, and automatically relaunches a stalled worker in the same git worktree on the next allowed provider.
 
-## Intended CLI Quickstart
+## Quickstart
 
 ```bash
-# 1. Detect installed CLIs and logins, confirm plans and windows -> ~/.config/hiraishin/config.toml
-hiraishin init
+git clone https://github.com/KurobaneShin/hiraishin && cd hiraishin
+go install ./cmd/hiraishin            # Go 1.26+, CGO-free static binary
 
-# 2. Inspect live quota windows, burn rates, and time-to-reset across all providers
+# 1. Detect installed CLIs (claude, kimi, opencode agents, agy) -> ~/.config/hiraishin/preferences.toml
+#    API keys are stored only as env var names (api_key_env), never as values.
+hiraishin init                        # --yes for non-interactive, --force to overwrite
+
+# 2. Providers, states, window % with confidence, slots and time-to-reset (--json for scripts)
 hiraishin status
 
-# 3. Pick a scheduling objective (switchable at any time)
+# 3. Pick a scheduling objective (stored in the ledger, switchable at any time)
 hiraishin profile set burn-expiring-first
 
-# 4. Dispatch a task into a git worktree with automatic mid-task failover
-hiraishin run --role backend --worktree ../wt/auth-fix --brief briefs/auth-fix.md
+# 4. Queue a job and launch the chosen provider in a git worktree (process, tmux or orca adapter)
+hiraishin run --brief briefs/auth-fix/brief.md --worktree ../wt/auth-fix --role backend --adapter tmux
 
-# 5. Ask why the scheduler chose that provider (or rejected others)
+# 5. Follow running jobs: on a limit hit, stop the agent, keep every dirty file and relaunch
+#    the next allowed provider in the same worktree with git status/diff + report.md
+hiraishin watch
+
+# 6. Ask why the scheduler chose that provider and rejected the others (--json, --all)
 hiraishin why job_01J9X4K2
 
-# 6. Watch running jobs, detect limit errors, and fail over in-place
-hiraishin watch --adapter orca
-
 # 7. Override at runtime without editing config
-hiraishin pause kimi-native && hiraishin pin job_01J9X4K2 claude-max
+hiraishin pause kimi-native        # also: drain, resume, prefer <p> --ttl 2h, pin <job> <p>, unpin, cancel <job>
 ```
+
+Exit codes: `0` success, `1` runtime error, `2` usage error (bad flag, argument or provider name).
+Paths: `HIRAISHIN_CONFIG` (default `$XDG_CONFIG_HOME/hiraishin/preferences.toml`) and `HIRAISHIN_DATA_DIR` (default `$XDG_DATA_HOME/hiraishin`, holding `ledger.db` and per-attempt logs).
 
 ## Core Principles
 

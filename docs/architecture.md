@@ -25,17 +25,18 @@ flowchart LR
 
 ## Components
 
-| Component | Package (planned) | Responsibility |
+| Component | Package | Responsibility |
 |---|---|---|
 | **Sensors** | `internal/sensor` | Collect quota utilization, reset timestamps, and rate-limit signals from a provider using a tiered reliability chain (first-party usage endpoint -> local CLI logs/DB -> terminal output regex with recorded fixtures -> local token estimator). Never scrapes web cookies or proxies inference. |
 | **Event Ledger** | `internal/ledger` | Append-only SQLite store (WAL mode, pure-Go `modernc.org/sqlite`). Persists every sample, decision, `why` trace, job transition, failover, and outcome. Projections (`provider_windows`, `jobs`, `learning_stats`) are rebuilt or updated transactionally from events. |
-| **Forecast** | `internal/forecast` | Pure functions over recent `QuotaSample` events and active job counts. Computes exponentially weighted burn rate (`pct_per_hour`), `time_to_empty`, `time_to_reset`, and `perishable_waste_risk` (fraction of remaining window projected to expire unused before reset). |
+| **Forecast** (v0.2) | `internal/forecast` | Pure functions over recent `QuotaSample` events and active job counts. Computes exponentially weighted burn rate (`pct_per_hour`), `time_to_empty`, `time_to_reset`, and `perishable_waste_risk` (fraction of remaining window projected to expire unused before reset). |
 | **Scheduler** | `internal/scheduler` | Evaluates hard policy gates (inventory enabled, concurrency cap, deny list, min quality tier, pin, cooldown) and scores eligible providers with the active objective profile plus bounded learned adjustments ([preferences.md](preferences.md)). Always emits a structured `Decision` with a human-readable `WhyTrace`. |
 | **Dispatcher** | `internal/dispatch` | Prepares the job's git worktree, builds either the initial launch prompt or a failover resume prompt (pulling git status/diff, report file, and optional `ai-memory`/`qmd`/`graphify` context), selects the harness command line, and hands execution to a terminal adapter. |
-| **Harness Adapters** | `internal/harness` | Provider-specific translators (`claude-code`, `kimi-native`, `glm-claude`, `opencode`, `antigravity-agy`, `codex`, `gemini-cli`). Encapsulate CLI flags for headless vs. interactive mode, session ID extraction, native resume flags, environment variables, and limit-error regex patterns. |
-| **Terminal Adapters** | `internal/terminal` | Execution surfaces (`process` via `os/exec` + PTY/pipes, `tmux` pane manager, `orca` via `orca-ide` CLI). Provide a uniform interface: `Spawn`, `Inspect`, `SendText`, `TailOutput`, `Stop`. |
-| **Failover Watcher** | `internal/watcher` | Subscribes to terminal output streams and process exit codes for every running job. Matches harness-specific limit/auth/quota error patterns, records a `provider.limit_hit` event, marks the window `EXHAUSTED`, stops the stalled process cleanly (preserving uncommitted files), and triggers re-scheduling on the next allowed provider unless `never_switch_mid_task` is set. |
-| **MCP Server** | `internal/mcp` | Local stdio MCP server exposing read-only status (`hiraishin_status`, `hiraishin_why`, `hiraishin_forecast`) and orchestration actions (`hiraishin_pick_provider`, `hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, `hiraishin_pin`) so a supervisor agent can coordinate fleets without shelling out. |
+| **Harness Adapters** | `internal/dispatch` (`harness.go`) | Provider-specific translators (`claude-code`, `kimi-native`, `glm-claude`, `opencode`, `antigravity-agy`, `codex`, `gemini-cli`). Encapsulate CLI flags for headless vs. interactive mode, session ID extraction, native resume flags, environment variables, and limit-error regex patterns. |
+| **Terminal Adapters** | `internal/dispatch` (`adapter.go`) | Execution surfaces (`process` via `os/exec` in its own session, `tmux` window in session `hiraishin`, `orca` via `orca-ide terminal create`). Each runs the same per-attempt `run.sh` wrapper, which records the process group, tees `output.log` and writes the exit code, so `Stop` (SIGINT, SIGTERM, SIGKILL on the group) and output tailing are uniform across adapters. |
+| **Failover Watcher** | `internal/watch` | Subscribes to terminal output streams and process exit codes for every running job. Matches harness-specific limit/auth/quota error patterns, records a `provider.limit_hit` event, marks the window `EXHAUSTED`, stops the stalled process cleanly (preserving uncommitted files), and triggers re-scheduling on the next allowed provider unless `never_switch_mid_task` is set. |
+| **Engine** | `internal/engine` | Glue used by the CLI and the watcher: opens config + ledger, syncs configured providers, emits maintenance events (cooldown recovery, window resets), turns scheduler decisions into ledger events and launches attempts. |
+| **MCP Server** (v0.2) | `internal/mcp` | Local stdio MCP server exposing read-only status (`hiraishin_status`, `hiraishin_why`, `hiraishin_forecast`) and orchestration actions (`hiraishin_pick_provider`, `hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, `hiraishin_pin`) so a supervisor agent can coordinate fleets without shelling out. |
 
 ### Key Scheduling Invariants
 
@@ -166,21 +167,28 @@ Every mutation enters `events` first.
 |---|---|---|---|
 | Sensor | `sensor.quota_sampled` | Sensors | `window_name`, `used_pct`, `resets_at`, `confidence`, `raw_tokens` |
 | Sensor | `sensor.probe_failed` | Sensors | `sensor_tier`, `error`, `http_status` |
+| Provider | `provider.configured` | Engine (config sync) | `harness`, `max_concurrent` |
+| Provider | `provider.degraded` | Watcher | `matched_pattern`, `excerpt`, `cooldown_until` |
+| Provider | `provider.recovered` | Engine (cooldown expiry) | `previous_state` |
 | Provider | `provider.limit_hit` | Watcher / Sensor | `window_name`, `matched_pattern`, `excerpt`, `estimated_reset_at` |
 | Provider | `provider.auth_failed` | Watcher / Sensor | `http_status`, `excerpt` |
 | Provider | `provider.window_reset` | Forecast / Sensor | `window_name`, `previous_state`, `resets_at_next` |
 | Provider | `provider.paused` | CLI / MCP | `reason`, `by` |
 | Provider | `provider.resumed` | CLI / MCP | `by` |
 | Provider | `provider.draining` | CLI / MCP | `reason`, `by` |
-| Scheduler | `scheduler.decision_made` | Scheduler | `decision_id`, `trigger`, `profile`, `chosen_provider`, `candidates` |
+| Runtime | `runtime.profile_set` | CLI | `profile`, `by` |
+| Runtime | `runtime.prefer_set` / `runtime.prefer_cleared` | CLI | `role`, `expires_at`, `by` |
+| Scheduler | `scheduler.decision_made` | Scheduler | `decision_id`, `trigger`, `profile`, `role`, `min_quality_tier`, `weights`, `chosen_provider`, `candidates`, `summary`, `earliest_reset_at`, `blocked_providers` |
 | Job | `job.queued` | CLI / MCP | `name`, `role`, `worktree_path`, `branch`, `brief_path`, `size_tier` |
 | Job | `job.dispatched` | Dispatcher | `attempt_id`, `provider_id`, `terminal_adapter`, `terminal_handle`, `start_commit` |
+| Job | `job.spawn_failed` | Dispatcher | `decision_id`, `error`, `retryable` |
 | Job | `job.session_detected` | Watcher | `native_session_id` |
 | Job | `job.failover_started` | Watcher | `from_provider`, `reason`, `dirty_files`, `head_commit` |
 | Job | `job.waiting_quota` | Scheduler | `earliest_reset_at`, `blocked_providers` |
 | Job | `job.completed` | Watcher / CLI | `end_commit`, `duration_min`, `pr_url` |
 | Job | `job.failed` | Watcher / CLI | `exit_code`, `reason` |
 | Job | `job.cancelled` | CLI / MCP | `by`, `reason` |
+| Job | `job.pinned` / `job.unpinned` | CLI | `provider` / `never_switch` |
 | Learning | `learning.outcome_recorded` | CLI / MCP | `provider_id`, `role`, `success`, `review_rounds`, `build_failures`, `duration_min` |
 | Learning | `learning.frozen` / `learning.unfrozen` | CLI / MCP | `scope` (`global` or `provider:role`) |
 
