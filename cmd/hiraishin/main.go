@@ -1,5 +1,3 @@
-// Command hiraishin schedules coding-agent CLI jobs across subscription
-// quota windows and fails over stalled jobs inside their git worktree.
 package main
 
 import (

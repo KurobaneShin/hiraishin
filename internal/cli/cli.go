@@ -1,4 +1,3 @@
-// Package cli implements the hiraishin command-line interface.
 package cli
 
 import (
@@ -8,8 +7,6 @@ import (
 	"runtime/debug"
 )
 
-// Env carries the process environment so commands stay testable without
-// touching global state.
 type Env struct {
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -26,7 +23,6 @@ Commands:
   version   Print the build version
 `
 
-// Run executes one CLI invocation and returns the process exit code.
 func Run(_ context.Context, args []string, env Env) int {
 	if len(args) == 0 {
 		_, _ = fmt.Fprint(env.Stderr, usage)
