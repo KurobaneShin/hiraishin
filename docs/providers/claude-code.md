@@ -18,9 +18,9 @@ claude -p "<prompt>" \
 ```
 
 - `-p` / `--print`: non-interactive mode; skips workspace trust dialog (only use in trusted worktrees).
-- `--output-format stream-json`: emits NDJSON events (including session ID, token usage, and structured errors) ideal for `aq`'s Failover Watcher.
+- `--output-format stream-json`: emits NDJSON events (including session ID, token usage, and structured errors) ideal for `hiraishin`'s Failover Watcher.
 - `--permission-mode`: `acceptEdits`, `auto`, `bypassPermissions` (or `--dangerously-skip-permissions` in isolated sandboxes), `dontAsk`, `plan`.
-- `--fallback-model <model>`: built-in intra-Anthropic fallback when a model is busy; `aq` leaves this unset or controlled by user config so cross-provider scheduling remains explicit.
+- `--fallback-model <model>`: built-in intra-Anthropic fallback when a model is busy; `hiraishin` leaves this unset or controlled by user config so cross-provider scheduling remains explicit.
 - `--bg` / `--background`: starts a background session managed via `claude attach|logs|stop|rm`.
 
 ### Interactive
@@ -42,7 +42,7 @@ orca-ide agent launch --agent claude --worktree "id:<wt_id>" --surface terminal 
   - `claude --continue` (or `-c`) continues the most recent conversation in the current working directory.
   - `--fork-session` creates a new session ID on resume to preserve the original transcript.
   - Note: `--system-prompt-snapshot on` (default) reuses the first turn's system prompt verbatim across resumes until compaction.
-- **Cross-provider failover (`aq`):** When Claude hits its 5h or weekly limit, `aq` does not convert Claude's JSONL transcript; it stops the process and launches the next allowed provider in the same git worktree ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)).
+- **Cross-provider failover (`hiraishin`):** When Claude hits its 5h or weekly limit, `hiraishin` does not convert Claude's JSONL transcript; it stops the process and launches the next allowed provider in the same git worktree ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)).
 
 ## Quota Windows & Reset Rules
 
@@ -52,14 +52,14 @@ Claude Code shares subscription capacity with `claude.ai` and Claude Desktop ([A
 |---|---|---|
 | **5-hour session window** | Rolling | Starts on the first prompt of a fresh cycle; resets 5 hours later. |
 | **Weekly cap** | Fixed weekly | Account-assigned weekly reset timestamp across all models (with separate model-tier weighting, e.g. Opus vs. Sonnet). |
-| **Ultra / Enterprise / API** | Plan-dependent | Ultra tiers may waive or expand the 5h window `[unverified exact current threshold]`; `ANTHROPIC_API_KEY` is token-metered (off by default in `aq`). |
+| **Ultra / Enterprise / API** | Plan-dependent | Ultra tiers may waive or expand the 5h window `[unverified exact current threshold]`; `ANTHROPIC_API_KEY` is token-metered (off by default in `hiraishin`). |
 
 ## How to Read Usage (Sensor Chain)
 
 1. **Tier 1 — OAuth Usage Endpoint (caution: rate-limited):**
    - Endpoint: `GET https://api.anthropic.com/api/oauth/usage` with headers `Authorization: Bearer <oauth_token>` and `anthropic-beta: oauth-2025-04-20` (as documented in community monitors such as [quota-axi](https://github.com/kunchenguid/quota-axi) and [CodexBar](https://github.com/steipete/CodexBar)).
    - Returns rolling 5-hour utilization percentage, weekly utilization percentage, and reset timestamps (mirroring `/usage` inside the CLI).
-   - **Important:** Aggressive polling triggers `429 Too Many Requests` (often with `retry-after: 0`). `aq` enforces `poll_interval_sec >= 120`, backs off exponentially on 429, and prefers passive rate-limit metadata passed via Claude Code's native status/hook environment when available.
+   - **Important:** Aggressive polling triggers `429 Too Many Requests` (often with `retry-after: 0`). `hiraishin` enforces `poll_interval_sec >= 120`, backs off exponentially on 429, and prefers passive rate-limit metadata passed via Claude Code's native status/hook environment when available.
    - Credential lookup (read-only, never exported): `~/.claude/.credentials.json` or OS keychain.
 2. **Tier 2 — Local JSONL Session Logs:**
    - Claude Code writes per-session JSONL transcripts under `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` and `~/.claude/history.jsonl` (verified locally on 2026-11-21).
@@ -106,13 +106,13 @@ Key clause in Anthropic's Consumer Terms of Service (Use Restrictions):
 > "Except when you are accessing our Services via an Anthropic API Key or where we otherwise explicitly permit it, to access the Services through automated or non-human means, whether through a bot, script, or otherwise."
 > — [Anthropic Consumer Terms of Service](https://www.anthropic.com/legal/consumer-terms)
 
-**Compliance boundary for `aq`:**
+**Compliance boundary for `hiraishin`:**
 - Running the official `claude` CLI (including `claude -p`, which Anthropic documents in [Run Claude Code programmatically](https://claude-code.mintlify.app/docs/automation/run-programmatically)) on the user's own workstation under the user's own login is the officially supported surface.
 - Extracting Claude Code's OAuth token to feed a third-party API client, reverse proxy, or multi-tenant pool is prohibited — and explicitly forbidden by [ADR 0001](../adr/0001-no-proxy.md).
-- Polling `/api/oauth/usage` directly from `aq` sits in a gray area because it reads the OAuth token from `~/.claude/.credentials.json` for a metadata GET request; therefore `aq` makes endpoint polling **opt-in** (`sensor.mode = "endpoint"` or `"auto"` confirmed during `aq init`) and supports zero-endpoint local-log + output-regex operation.
+- Polling `/api/oauth/usage` directly from `hiraishin` sits in a gray area because it reads the OAuth token from `~/.claude/.credentials.json` for a metadata GET request; therefore `hiraishin` makes endpoint polling **opt-in** (`sensor.mode = "endpoint"` or `"auto"` confirmed during `hiraishin init`) and supports zero-endpoint local-log + output-regex operation.
 
 ## Open Risks
 
 1. **Undocumented `/api/oauth/usage` stability:** Endpoint path, `anthropic-beta` header (`oauth-2025-04-20`), and tight rate limits have changed before and can break without notice.
-2. **Account-level shared pool:** Interactive web/Desktop usage and multiple parallel `claude` worktrees drain the same 5h and weekly pool simultaneously; `aq` must model `claude-opus` and `claude-sonnet` under one `shared_quota_pool`.
+2. **Account-level shared pool:** Interactive web/Desktop usage and multiple parallel `claude` worktrees drain the same 5h and weekly pool simultaneously; `hiraishin` must model `claude-opus` and `claude-sonnet` under one `shared_quota_pool`.
 3. **Consumer vs. Commercial automation boundary:** Heavy unattended multi-agent loops on a consumer Pro/Max plan may face stricter enforcement than interactive-assisted development; users running CI/production automation should opt into an API key (`cost_class = "metered"`).

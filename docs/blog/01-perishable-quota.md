@@ -18,8 +18,8 @@ At 15:10 on a Saturday afternoon, three of my coding-agent fronts stopped dead o
 3. **Why Proxies Are the Wrong Answer**
    - Why API proxies over subscription OAuth logins break prompt caches, tool-calling formats, and vendor Terms of Service ([ADR 0001](../adr/0001-no-proxy.md)).
    - Scheduling at the **task and process boundary** instead of the HTTP request boundary.
-4. **A 20-Line Mental Model for `aq`**
-   - Show the intended CLI flow (`aq init`, `aq status`, `aq profile set burn-expiring-first`, `aq run`, `aq why`).
+4. **A 20-Line Mental Model for `hiraishin`**
+   - Show the intended CLI flow (`hiraishin init`, `hiraishin status`, `hiraishin profile set burn-expiring-first`, `hiraishin run`, `hiraishin why`).
    - Tease the rest of the series (sensing without APIs, worktree checkpoints, the 12-front incident, simulator benchmarks, bounded preferences).
 
 ## Figures & Data Needed

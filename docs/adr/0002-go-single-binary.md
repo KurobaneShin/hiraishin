@@ -5,11 +5,11 @@ Status: Accepted
 
 ## Context
 
-`aq` must run concurrent terminal watchers, sensor pollers, reset timers, and an MCP stdio server on developer workstations (Linux, WSL2, macOS) without introducing runtime version conflicts or heavy memory overhead alongside 10+ active agent processes.
+`hiraishin` must run concurrent terminal watchers, sensor pollers, reset timers, and an MCP stdio server on developer workstations (Linux, WSL2, macOS) without introducing runtime version conflicts or heavy memory overhead alongside 10+ active agent processes.
 
 ## Decision
 
-Implement `aq` in Go as a single statically linked binary using pure-Go SQLite (`modernc.org/sqlite`) and no mandatory Node/Python runtime.
+Implement `hiraishin` in Go as a single statically linked binary using pure-Go SQLite (`modernc.org/sqlite`) and no mandatory Node/Python runtime.
 
 ## Consequences
 

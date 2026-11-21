@@ -32,8 +32,8 @@ gemini
 - **Same-provider resume:**
   - `gemini --resume latest` (or `-r latest`): resumes the latest saved conversation checkpoint.
   - `gemini --resume <session-id>` (or `-r <session-id>`): resumes a specific saved session.
-- **No native quota queuing:** Gemini CLI fails immediately on HTTP 429 / `RESOURCE_EXHAUSTED` without queuing until reset — making `aq`'s Failover Watcher and `WAITING_QUOTA` queue directly complementary.
-- **Cross-provider failover (`aq`):** Uses the git worktree checkpoint ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)).
+- **No native quota queuing:** Gemini CLI fails immediately on HTTP 429 / `RESOURCE_EXHAUSTED` without queuing until reset — making `hiraishin`'s Failover Watcher and `WAITING_QUOTA` queue directly complementary.
+- **Cross-provider failover (`hiraishin`):** Uses the git worktree checkpoint ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)).
 
 ## Quota Windows & Reset Rules
 
@@ -45,7 +45,7 @@ Limits depend on authentication method and tier ([Gemini CLI Quotas](https://gem
 | **Google AI Pro / Code Assist Standard** | ~1,500 RPD | Midnight Pacific Time (`America/Los_Angeles`) | Higher model access & burst limits. |
 | **Google AI Ultra / Enterprise** | ~2,000 RPD | Midnight Pacific Time (`America/Los_Angeles`) | Highest daily allowance. |
 | **Gemini API Key (Free tier)** | ~250 RPD | Midnight Pacific Time (`America/Los_Angeles`) | Often restricted to Flash models. |
-| **Gemini API Key (Paid / Vertex AI)** | Metered | Per-minute RPM/TPM | Off by default in `aq` (`cost_class = "metered"`). |
+| **Gemini API Key (Paid / Vertex AI)** | Metered | Per-minute RPM/TPM | Off by default in `hiraishin` (`cost_class = "metered"`). |
 
 > **Important multiplier:** One agentic CLI prompt frequently triggers 10–50 underlying model API requests (one per tool call turn), so a single heavy coding task can consume a large fraction of the daily RPD pool.
 
@@ -85,10 +85,10 @@ Key policy boundaries:
 - The CLI binary is Apache-2.0 and explicitly provides `-p` / `--output-format json` for headless scripting.
 - Proxying or extracting personal OAuth credentials from Gemini CLI into third-party multi-tenant wrappers or unauthorized API bridges violates Google's service terms and risks account suspension or token revocation ([Gemini CLI Docs](https://geminicli.com/)).
 - `[unverified exact verbatim ToS clause]`: Confirm exact quote from `developers.google.com/code-assist/terms` regarding automated local invocations before enabling `gemini-cli` in v0.2.
-- **Compliance boundary for `aq`:** `aq` only runs the official `gemini` binary locally in the user's own worktree without touching or relaying its OAuth credentials ([ADR 0001](../adr/0001-no-proxy.md)).
+- **Compliance boundary for `hiraishin`:** `hiraishin` only runs the official `gemini` binary locally in the user's own worktree without touching or relaying its OAuth credentials ([ADR 0001](../adr/0001-no-proxy.md)).
 
 ## Open Risks
 
 1. **RPM vs. RPD ambiguity:** Both per-minute bursts and daily exhaustion surface as `429 RESOURCE_EXHAUSTED`; misclassifying a 60-second RPM hiccup as a 24-hour daily exhaustion would unnecessarily bench the provider until midnight PT. The two-step probe (65s cooldown re-check) is mandatory.
 2. **Midnight Pacific Time timezone drift:** Reset calculation must use `America/Los_Angeles` (handling PST/PDT DST transitions) rather than a fixed UTC offset.
-3. **Silent model downgrade:** Some Gemini CLI configurations auto-fallback from Pro to Flash on quota pressure; `aq` should log the actual served model from `stream-json` metadata so `learning_stats` attributes outcomes to the model that actually ran.
+3. **Silent model downgrade:** Some Gemini CLI configurations auto-fallback from Pro to Flash on quota pressure; `hiraishin` should log the actual served model from `stream-json` metadata so `learning_stats` attributes outcomes to the model that actually ran.

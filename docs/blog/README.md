@@ -1,6 +1,6 @@
 # Blog Series Outlines
 
-Six technical posts documenting the motivation, architecture, real-world failure data, and empirical evaluation of `aq`.
+Six technical posts documenting the motivation, architecture, real-world failure data, and empirical evaluation of `hiraishin`.
 
 | # | Outline | Core Theme |
 |---|---|---|

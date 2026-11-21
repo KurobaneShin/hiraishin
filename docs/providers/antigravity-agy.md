@@ -43,7 +43,7 @@ agy --model gemini-4-neon-high --mode accept-edits --add-dir /path/to/worktree -
   - `agy --continue` (`-c`): continues the most recent conversation.
   - `agy --conversation <id>`: resumes a specific conversation by ID.
 - **Multi-phase headless loop:** Because `agy --print` exits after completing a turn (or hitting `--print-timeout`), existing wrappers (`agy-front.sh`) run iterative phases in the same worktree, checking `report.md` and `inbox.md` between phases.
-- **Cross-provider failover (`aq`):** Uses the git worktree checkpoint ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)). On 2026-11-21, `agy` (`gemini-4-neon-medium`) successfully resumed all three fronts that failed over from Kimi (`persist-all`, `loot-drops`, `char-flow`).
+- **Cross-provider failover (`hiraishin`):** Uses the git worktree checkpoint ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)). On 2026-11-21, `agy` (`gemini-4-neon-medium`) successfully resumed all three fronts that failed over from Kimi (`persist-all`, `loot-drops`, `char-flow`).
 
 ## Quota Windows & Reset Rules
 
@@ -57,8 +57,8 @@ agy --model gemini-4-neon-high --mode accept-edits --add-dir /path/to/worktree -
 1. **Tier 1 — Local / First-Party Probe (opt-in via `quota-axi`):**
    - [quota-axi](https://github.com/kunchenguid/quota-axi) and [AgentLimits](https://github.com/b01b02014/agent-limit-monitor) support reading Antigravity (`agy`) quota metadata from local credentials/loopback state `[unverified exact endpoint path — inspect quota-axi source before implementing native Go probe]`.
 2. **Tier 2 — Local Transcripts & Logs:**
-   - `agy` writes conversation transcripts to `~/.gemini/antigravity-cli/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (verified locally on 2026-11-21) and `--log-file <path>` when passed by `aq`.
-   - `aq` counts turns and elapsed minutes per window (`confidence = "estimated"`).
+   - `agy` writes conversation transcripts to `~/.gemini/antigravity-cli/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (verified locally on 2026-11-21) and `--log-file <path>` when passed by `hiraishin`.
+   - `hiraishin` counts turns and elapsed minutes per window (`confidence = "estimated"`).
 3. **Tier 3 — Terminal Output Patterns:**
    - Primary detector in v0.1. Watches stdout/stderr and `--log-file` for `429`, `RESOURCE_EXHAUSTED`, `401`, and `UNAUTHENTICATED`.
 
@@ -91,6 +91,6 @@ Key policy points:
 
 ## Open Risks
 
-1. **Silent `401 UNAUTHENTICATED` expiry:** Cached keyring/OAuth tokens can expire mid-loop during long overnight runs; `aq` must distinguish `AUTH_ERROR` from `EXHAUSTED` so it alerts the user instead of waiting 5 hours for a phantom reset.
+1. **Silent `401 UNAUTHENTICATED` expiry:** Cached keyring/OAuth tokens can expire mid-loop during long overnight runs; `hiraishin` must distinguish `AUTH_ERROR` from `EXHAUSTED` so it alerts the user instead of waiting 5 hours for a phantom reset.
 2. **Account-wide vs. per-model lockout:** Hitting `429` on a heavy model (`gemini-4-neon-high`) can sometimes lock or throttle lighter models on the same account; `shared_quota_pool = "google-antigravity"` should be configured cautiously with separate cooldown tracking per model tier.
 3. **No documented public usage API:** Until a first-party `agy usage --json` command exists or `quota-axi`'s probe is verified stable, `agy` relies primarily on Tier 3 reactive limit detection and local burn-rate estimation.

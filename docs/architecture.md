@@ -1,6 +1,6 @@
 # Architecture
 
-`aq` is a local-first Go daemon and CLI ([ADR 0002](adr/0002-go-single-binary.md)) backed by an append-only SQLite event ledger ([ADR 0003](adr/0003-sqlite-event-ledger.md)). It never proxies model traffic ([ADR 0001](adr/0001-no-proxy.md)): every coding agent runs natively in its own official CLI (or user-configured harness such as OpenCode), inside a git worktree that serves as the recovery checkpoint ([ADR 0004](adr/0004-worktree-as-checkpoint.md)).
+`hiraishin` is a local-first Go daemon and CLI ([ADR 0002](adr/0002-go-single-binary.md)) backed by an append-only SQLite event ledger ([ADR 0003](adr/0003-sqlite-event-ledger.md)). It never proxies model traffic ([ADR 0001](adr/0001-no-proxy.md)): every coding agent runs natively in its own official CLI (or user-configured harness such as OpenCode), inside a git worktree that serves as the recovery checkpoint ([ADR 0004](adr/0004-worktree-as-checkpoint.md)).
 
 ## Pipeline Overview
 
@@ -35,7 +35,7 @@ flowchart LR
 | **Harness Adapters** | `internal/harness` | Provider-specific translators (`claude-code`, `kimi-native`, `glm-claude`, `opencode`, `antigravity-agy`, `codex`, `gemini-cli`). Encapsulate CLI flags for headless vs. interactive mode, session ID extraction, native resume flags, environment variables, and limit-error regex patterns. |
 | **Terminal Adapters** | `internal/terminal` | Execution surfaces (`process` via `os/exec` + PTY/pipes, `tmux` pane manager, `orca` via `orca-ide` CLI). Provide a uniform interface: `Spawn`, `Inspect`, `SendText`, `TailOutput`, `Stop`. |
 | **Failover Watcher** | `internal/watcher` | Subscribes to terminal output streams and process exit codes for every running job. Matches harness-specific limit/auth/quota error patterns, records a `provider.limit_hit` event, marks the window `EXHAUSTED`, stops the stalled process cleanly (preserving uncommitted files), and triggers re-scheduling on the next allowed provider unless `never_switch_mid_task` is set. |
-| **MCP Server** | `internal/mcp` | Local stdio MCP server exposing read-only status (`aq_status`, `aq_why`, `aq_forecast`) and orchestration actions (`aq_pick_provider`, `aq_dispatch`, `aq_pause`, `aq_drain`, `aq_pin`) so a supervisor agent can coordinate fleets without shelling out. |
+| **MCP Server** | `internal/mcp` | Local stdio MCP server exposing read-only status (`hiraishin_status`, `hiraishin_why`, `hiraishin_forecast`) and orchestration actions (`hiraishin_pick_provider`, `hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, `hiraishin_pin`) so a supervisor agent can coordinate fleets without shelling out. |
 
 ### Key Scheduling Invariants
 
@@ -45,7 +45,7 @@ flowchart LR
 
 ## Data Model (SQLite)
 
-Database path: `${XDG_DATA_HOME:-~/.local/share}/aq/ledger.db` (WAL mode, `busy_timeout = 5000`, `foreign_keys = ON`).
+Database path: `${XDG_DATA_HOME:-~/.local/share}/hiraishin/ledger.db` (WAL mode, `busy_timeout = 5000`, `foreign_keys = ON`).
 
 ### `events` (append-only source of truth)
 
@@ -123,7 +123,7 @@ Primary key: `(provider_id, window_name)`.
 | `profile` | `TEXT` | `NOT NULL` | Active objective profile name |
 | `chosen_provider` | `TEXT` | `NULL` | Selected provider (`NULL` if no eligible provider -> `WAITING_QUOTA`) |
 | `candidates_json` | `TEXT` | `NOT NULL` | Full JSON array of every candidate's score breakdown and hard-gate pass/reject reasons |
-| `summary` | `TEXT` | `NOT NULL` | Single-paragraph human explanation rendered by `aq why` |
+| `summary` | `TEXT` | `NOT NULL` | Single-paragraph human explanation rendered by `hiraishin why` |
 | `created_at` | `TEXT` | `NOT NULL` | Decision timestamp |
 
 ### `job_attempts` (per-provider execution segments)
@@ -203,16 +203,16 @@ stateDiagram-v2
     DEGRADED --> AUTH_ERROR: 401 / UNAUTHENTICATED
     AUTH_ERROR --> AVAILABLE: user re-auths AND probe ok
 
-    AVAILABLE --> DRAINING: aq drain <provider>
-    DEGRADED --> DRAINING: aq drain <provider>
+    AVAILABLE --> DRAINING: hiraishin drain <provider>
+    DEGRADED --> DRAINING: hiraishin drain <provider>
     DRAINING --> PAUSED: active_jobs == 0
-    DRAINING --> AVAILABLE: aq resume <provider>
+    DRAINING --> AVAILABLE: hiraishin resume <provider>
 
-    AVAILABLE --> PAUSED: aq pause <provider>
-    DEGRADED --> PAUSED: aq pause <provider>
-    EXHAUSTED --> PAUSED: aq pause <provider>
-    PAUSED --> AVAILABLE: aq resume <provider> (if quota > 0)
-    PAUSED --> EXHAUSTED: aq resume <provider> (if window still empty)
+    AVAILABLE --> PAUSED: hiraishin pause <provider>
+    DEGRADED --> PAUSED: hiraishin pause <provider>
+    EXHAUSTED --> PAUSED: hiraishin pause <provider>
+    PAUSED --> AVAILABLE: hiraishin resume <provider> (if quota > 0)
+    PAUSED --> EXHAUSTED: hiraishin resume <provider> (if window still empty)
 
     AVAILABLE --> UNAVAILABLE: binary missing / harness broken
     UNAVAILABLE --> AVAILABLE: doctor check passes
@@ -230,13 +230,13 @@ State semantics:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> QUEUED: aq run / MCP dispatch
+    [*] --> QUEUED: hiraishin run / MCP dispatch
 
     QUEUED --> DISPATCHING: scheduler picks provider
     QUEUED --> WAITING_QUOTA: no eligible provider available
 
     WAITING_QUOTA --> DISPATCHING: provider window resets\nor operator unpauses/changes rule
-    WAITING_QUOTA --> CANCELLED: aq cancel
+    WAITING_QUOTA --> CANCELLED: hiraishin cancel
 
     DISPATCHING --> RUNNING: terminal spawned & slot locked
     DISPATCHING --> QUEUED: transient spawn error (retryable)
@@ -246,11 +246,11 @@ stateDiagram-v2
     RUNNING --> FAILING_OVER: watcher detects quota exhaustion\n(and never_switch == false)
     RUNNING --> WAITING_QUOTA: watcher detects quota exhaustion\n(and never_switch == true)
     RUNNING --> FAILED: non-quota crash exceeding retry cap
-    RUNNING --> CANCELLED: aq cancel
+    RUNNING --> CANCELLED: hiraishin cancel
 
     FAILING_OVER --> DISPATCHING: next allowed provider picked\n& resume prompt built
     FAILING_OVER --> WAITING_QUOTA: all allowed providers exhausted/paused
-    FAILING_OVER --> CANCELLED: aq cancel
+    FAILING_OVER --> CANCELLED: hiraishin cancel
 
     COMPLETED --> [*]
     FAILED --> [*]
@@ -264,7 +264,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     actor User as User / Orchestrator
-    participant CLI as aq CLI / MCP
+    participant CLI as hiraishin CLI / MCP
     participant Int as Integrations (graphify / qmd)
     participant Sched as Scheduler
     participant Ledger as SQLite Ledger
@@ -272,7 +272,7 @@ sequenceDiagram
     participant Term as Terminal Adapter (Orca/tmux/proc)
     participant Agent as Harness CLI
 
-    User->>CLI: aq run --role backend --worktree ../wt/feat --brief brief.md
+    User->>CLI: hiraishin run --role backend --worktree ../wt/feat --brief brief.md
     CLI->>Ledger: append job.queued
     opt graphify enabled
         CLI->>Int: size_task(worktree, brief)
@@ -289,7 +289,7 @@ sequenceDiagram
     Term->>Agent: exec kimi --prompt ...
     Term-->>Disp: terminal_handle
     Disp->>Ledger: append job.dispatched (state=RUNNING)
-    CLI-->>User: Dispatched job_01J9X4K2 on kimi-native (see: aq why job_01J9X4K2)
+    CLI-->>User: Dispatched job_01J9X4K2 on kimi-native (see: hiraishin why job_01J9X4K2)
 ```
 
 ### 2. Exhaustion Mid-Job & Worktree Failover
@@ -353,6 +353,6 @@ sequenceDiagram
         Timer->>Disp: ResumeInWorktree(waiting_job, Decision)
         Disp->>Ledger: append job.dispatched (state=RUNNING)
     else no waiting jobs
-        Note over Timer: kimi-native ready for next aq run
+        Note over Timer: kimi-native ready for next hiraishin run
     end
 ```

@@ -4,7 +4,7 @@ Surveyed on 2026-11-21 from public repositories, READMEs, and package metadata (
 
 ## Executive Verdict
 
-No single existing open-source project combines all five properties `aq` requires:
+No single existing open-source project combines all five properties `hiraishin` requires:
 1. **Perishable-first scheduling** across rolling 5h / weekly / daily subscription windows,
 2. **Mid-task cross-vendor failover** using the git worktree as the recovery checkpoint,
 3. **User-chosen, explainable, bounded-adaptive preferences** (`why` traces + hard policy gates),
@@ -55,8 +55,8 @@ Before writing v0.1 from scratch, run a 1-hour hands-on evaluation of [`agent-to
       }
     }
     ```
-- **How `aq` reuses it:** Because `aq` is a single static Go binary ([ADR 0002](adr/0002-go-single-binary.md)), it cannot import a TypeScript module in-process without bundling Node. We use a two-step reuse strategy:
-  1. **v0.1 fast path (opt-in subprocess adapter):** When `sensor.quota_axi_fallback = true` and `quota-axi` (or `node >= 22.19`) is present locally, `aq` shells out to `quota-axi --json` on the configured poll interval and normalizes its JSON into `sensor.quota_sampled` ledger events.
+- **How `hiraishin` reuses it:** Because `hiraishin` is a single static Go binary ([ADR 0002](adr/0002-go-single-binary.md)), it cannot import a TypeScript module in-process without bundling Node. We use a two-step reuse strategy:
+  1. **v0.1 fast path (opt-in subprocess adapter):** When `sensor.quota_axi_fallback = true` and `quota-axi` (or `node >= 22.19`) is present locally, `hiraishin` shells out to `quota-axi --json` on the configured poll interval and normalizes its JSON into `sensor.quota_sampled` ledger events.
   2. **v0.2 native Go sensors:** Port the MIT-licensed first-party endpoint probe specs for Claude, Kimi (`api.kimi.com/coding/v1/usages`), Z.AI (`api.z.ai/api/monitor/usage/quota/limit`), and Antigravity into native Go (preserving MIT attribution), removing the Node dependency completely.
 
 ### 2. `ai-dispatch` (`aid`) — Closest Orchestrator Neighbor
@@ -84,7 +84,7 @@ Decision: **build hiraishin**. aid is a large (≈190k lines Rust) general dispa
 ### 3. `hydra` and `tasuki` — PTY Output Failover Pattern
 
 - **Repositories:** [saadnvd1/hydra](https://github.com/saadnvd1/hydra) (Go, MIT), [0xkohe/tasuki](https://github.com/0xkohe/tasuki) (Go, MIT).
-- **What we reuse conceptually:** Both are written in Go and demonstrate clean PTY wrapping + regex limit matching + automatic session handoff across coding CLIs. `aq` adopts the same Go PTY/output-watcher ergonomics, extending it from one interactive terminal to N parallel worktree fronts with Orca/`tmux` adapters and proactive scheduling.
+- **What we reuse conceptually:** Both are written in Go and demonstrate clean PTY wrapping + regex limit matching + automatic session handoff across coding CLIs. `hiraishin` adopts the same Go PTY/output-watcher ergonomics, extending it from one interactive terminal to N parallel worktree fronts with Orca/`tmux` adapters and proactive scheduling.
 
 ### 4. `OmniRoute`, `CLIProxyAPI`, `Quotio` — Explicitly Out of Scope
 
@@ -94,4 +94,4 @@ Decision: **build hiraishin**. aid is a large (≈190k lines Rust) general dispa
 ### 5. `ccusage`, `CodexBar`, `ClaudeMeter`, `AgentLimits`, `ModelDeck` — Reference Monitors
 
 - Display-only (mostly macOS SwiftUI menu-bar apps).
-- **What we reuse conceptually:** `ccusage`'s `~/.claude/projects/**/*.jsonl` token-field parsing conventions and `AgentLimits`'s countdown-to-reset UX pattern for `aq status` and the v0.3 TUI.
+- **What we reuse conceptually:** `ccusage`'s `~/.claude/projects/**/*.jsonl` token-field parsing conventions and `AgentLimits`'s countdown-to-reset UX pattern for `hiraishin status` and the v0.3 TUI.

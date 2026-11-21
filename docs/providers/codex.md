@@ -22,7 +22,7 @@ codex exec \
 - `--sandbox <mode>`: `read-only`, `workspace-write`, or `danger-full-access`.
 - `--output-schema <file>`: enforces structured JSON output on the final message.
 - `-o <file>`: writes the final response text to a file.
-- `--ephemeral`: skips writing session files to disk (avoid when `aq` needs session IDs for resume).
+- `--ephemeral`: skips writing session files to disk (avoid when `hiraishin` needs session IDs for resume).
 - `-m <model>` (or `-c model="<model>"` on older builds): selects the model.
 
 ### Interactive
@@ -39,7 +39,7 @@ Inside the interactive CLI, `/status` displays current session usage and remaini
   - `codex exec resume --last "<prompt>"`: resumes the most recent session non-interactively.
   - `codex exec resume <session_id> "<prompt>"`: resumes a specific session by UUID.
   - `codex resume`: interactive session resume.
-- **Cross-provider failover (`aq`):** Uses the git worktree checkpoint ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)).
+- **Cross-provider failover (`hiraishin`):** Uses the git worktree checkpoint ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)).
 
 ## Quota Windows & Reset Rules
 
@@ -58,7 +58,7 @@ Subscription-backed Codex CLI usage (ChatGPT Plus, Pro, Business, Enterprise) fo
 2. **Tier 2 — Local JSONL Rollout Logs (strong local signal):**
    - Codex writes structured session transcripts to `~/.codex/sessions/YYYY/MM/DD/rollout-<UTC-timestamp>-<session-id>.jsonl` (`%USERPROFILE%\.codex\sessions\...` on Windows).
    - Each JSONL file includes token usage telemetry events (`input_tokens`, `output_tokens`, cached tokens) and rate-limit metadata when emitted by the CLI.
-   - `aq` tails the active rollout file for token burn rate (`confidence = "estimated"`).
+   - `hiraishin` tails the active rollout file for token burn rate (`confidence = "estimated"`).
 3. **Tier 3 — Terminal / `--json` Output Patterns:**
    - Parses `codex exec --json` error items and stderr for rate-limit / usage-cap messages.
 
@@ -92,13 +92,13 @@ Relevant clause from OpenAI's Terms of Use (What you cannot do):
 > "Interfere with or disrupt our Services, including circumvent any rate limits or restrictions or bypass any protective measures or safety mitigations we put on our Services."
 > — [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/)
 
-**Compliance boundary for `aq`:**
+**Compliance boundary for `hiraishin`:**
 - `codex exec` is OpenAI's officially documented headless interface for scripting and automation.
-- `aq` strictly **respects** rate limits: when Codex reports exhaustion, `aq` stops dispatching to Codex until its reset window passes rather than retrying aggressively or pooling multiple accounts to circumvent caps.
-- `aq` never extracts ChatGPT OAuth tokens to proxy non-Codex clients ([ADR 0001](../adr/0001-no-proxy.md)).
+- `hiraishin` strictly **respects** rate limits: when Codex reports exhaustion, `hiraishin` stops dispatching to Codex until its reset window passes rather than retrying aggressively or pooling multiple accounts to circumvent caps.
+- `hiraishin` never extracts ChatGPT OAuth tokens to proxy non-Codex clients ([ADR 0001](../adr/0001-no-proxy.md)).
 
 ## Open Risks
 
 1. **Dynamic server-side caps:** OpenAI periodically changes 5-hour and weekly allowances without fixed token numbers, making pure local token forecasting approximate unless anchored by Tier 1 probes or `/status`.
-2. **CLI flag churn:** Early `codex` versions changed model and approval flags (`-m` vs. `-c model=...`, `--full-auto` vs. `--sandbox`), so the `codex` adapter must detect `codex --version` during `aq init`.
-3. **Fast context drain in `codex exec`:** Automatic repo/AGENTS.md ingestion on every fresh `codex exec` call consumes more quota than interactive turns; `aq` should prefer single long-lived worktree runs over tight polling loops.
+2. **CLI flag churn:** Early `codex` versions changed model and approval flags (`-m` vs. `-c model=...`, `--full-auto` vs. `--sandbox`), so the `codex` adapter must detect `codex --version` during `hiraishin init`.
+3. **Fast context drain in `codex exec`:** Automatic repo/AGENTS.md ingestion on every fresh `codex exec` call consumes more quota than interactive turns; `hiraishin` should prefer single long-lived worktree runs over tight polling loops.

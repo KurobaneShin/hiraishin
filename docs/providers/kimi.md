@@ -1,6 +1,6 @@
 # Provider: Kimi Code (Moonshot AI)
 
-`aq` supports **both** Moonshot AI's native **Kimi Code CLI** (`kimi`) and running Kimi Code through **OpenCode** (`opencode`, e.g., the `kimi-worker` and `kimi-fast` agents). Users must not be forced onto OpenCode to schedule Kimi quotas.
+`hiraishin` supports **both** Moonshot AI's native **Kimi Code CLI** (`kimi`) and running Kimi Code through **OpenCode** (`opencode`, e.g., the `kimi-worker` and `kimi-fast` agents). Users must not be forced onto OpenCode to schedule Kimi quotas.
 
 Primary references:
 - [Kimi Code Documentation](https://www.kimi.com/code/docs/)
@@ -22,7 +22,7 @@ Documented for Moonshot's native Kimi Code CLI (`kimi`):
     --auto
   ```
   - `--prompt`: runs a single task non-interactively instead of entering the TUI.
-  - `--output-format`: `text` or `stream-json` (JSONL events for `aq`'s Failover Watcher).
+  - `--output-format`: `text` or `stream-json` (JSONL events for `hiraishin`'s Failover Watcher).
   - Permission modes: `--yolo` (ask when needed) or `--auto` (never ask, for autonomous worktrees). `[unverified against a local kimi binary — binary not installed on this workstation on 2026-11-21; verify exact flag spelling when installing MoonshotAI/kimi-code]`.
 - **Interactive:**
   ```bash
@@ -88,7 +88,7 @@ Subscription endpoints (used by Kimi Code CLI and OpenCode's `kimi-code-plan-cn`
    - Returns rolling 5-hour utilization/reset data and aggregate plan quota fields (`limit_month_total` etc.).
    - **Caution:** `quotamux` notes that Kimi's usage endpoint is not formally versioned as a public third-party SLA API `[unverified schema stability across CN and global accounts]`.
 2. **Tier 2 — Local Harness Storage:**
-   - When running via OpenCode: `opencode stats --days 1 --models` or read-only SQLite query against `~/.local/share/opencode/opencode.db` (note: this DB can grow multi-GB — 8.8 GB on this workstation — so `aq` must use indexed timestamp queries or CLI stats, never full-table scans).
+   - When running via OpenCode: `opencode stats --days 1 --models` or read-only SQLite query against `~/.local/share/opencode/opencode.db` (note: this DB can grow multi-GB — 8.8 GB on this workstation — so `hiraishin` must use indexed timestamp queries or CLI stats, never full-table scans).
    - Native Kimi CLI local session store path `[unverified — confirm once kimi binary is installed]`.
 3. **Tier 3 — Terminal Output Patterns:**
    - Watches stderr/PTY and `stream-json` / `opencode run --format json` events for HTTP 429 and 5-hour limit banners.
@@ -122,6 +122,6 @@ Key policy boundaries from Moonshot's platform documentation:
 ## Open Risks
 
 1. **Undocumented usage endpoint drift:** `https://api.kimi.com/coding/v1/usages` may change JSON fields or require specific client headers (`User-Agent` / `Client-Version`) without notice.
-2. **CN vs. Global account differences:** The user's `opencode.json` uses `kimi-code-plan-cn/k3.1-pro`; `aq` must allow configuring the base region (`cn` vs. `global`) for the sensor URL.
+2. **CN vs. Global account differences:** The user's `opencode.json` uses `kimi-code-plan-cn/k3.1-pro`; `hiraishin` must allow configuring the base region (`cn` vs. `global`) for the sensor URL.
 3. **Rapid 5h exhaustion under parallel fronts:** On 2026-11-21, running 3 parallel Kimi fronts (`char-flow`, `persist-all`, `loot-drops`) exhausted the 5h window rapidly, forcing manual failover of all three to `agy`. Setting `max_concurrent = 2..3` and pairing with `burn-expiring-first` avoids simultaneous stalls.
 4. **Native CLI installation gap:** `kimi` is not yet installed on this workstation, so native `--output-format stream-json` field names must be captured as recorded fixtures before enabling the native adapter in v0.1.

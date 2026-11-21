@@ -1,6 +1,6 @@
-# agent-quota (working name): plan
+# hiraishin: plan
 
-Status: design, nothing built. Started 2026-11-21 from the mmorpg orchestration (12 fronts on Claude, Kimi, GLM and Gemini Neon; three quota stalls and a full disk in one afternoon).
+Status: design done; v0.1 in build. Started 2026-11-21 from the mmorpg orchestration (12 fronts on Claude, Kimi, GLM and Gemini Neon; three quota stalls and a full disk in one afternoon).
 
 ## Problem
 

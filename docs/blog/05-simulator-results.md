@@ -5,7 +5,7 @@
 
 ## Hook
 
-Scheduling heuristics sound convincing on a whiteboard until they meet real bursty workloads. Because `aq` stores every sensor sample, job arrival, burn rate, and reset timestamp in an append-only SQLite event ledger, we can replay an entire 12-hour workday offline in under a second and measure what each policy actually saves.
+Scheduling heuristics sound convincing on a whiteboard until they meet real bursty workloads. Because `hiraishin` stores every sensor sample, job arrival, burn rate, and reset timestamp in an append-only SQLite event ledger, we can replay an entire 12-hour workday offline in under a second and measure what each policy actually saves.
 
 ## Sections
 

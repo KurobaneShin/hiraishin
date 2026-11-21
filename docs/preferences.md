@@ -1,12 +1,12 @@
 # User Preferences, Scoring, and Bounded Learning
 
-`aq` follows one governing rule: **the user decides** ([ADR 0005](adr/0005-user-preferences-over-learned-scores.md)). Every routing decision starts from explicit user configuration, evaluates hard policy gates before any score is computed, and writes a human-readable `why` trace into the SQLite ledger. Optional learning is strictly bounded inside the provider list the user already approved, and can be frozen with a single command.
+`hiraishin` follows one governing rule: **the user decides** ([ADR 0005](adr/0005-user-preferences-over-learned-scores.md)). Every routing decision starts from explicit user configuration, evaluates hard policy gates before any score is computed, and writes a human-readable `why` trace into the SQLite ledger. Optional learning is strictly bounded inside the provider list the user already approved, and can be frozen with a single command.
 
 ## Configuration File Location
 
-- Default path: `${XDG_CONFIG_HOME:-~/.config}/aq/preferences.toml`
-- Project-local override (optional, checked into or beside a repo): `.aq.toml` (only task rules, profile override, and pins; never inventory or credentials)
-- Precedence: CLI/runtime flags (`--provider`, `aq pin`, `aq pause`) > `.aq.toml` > `~/.config/aq/preferences.toml`.
+- Default path: `${XDG_CONFIG_HOME:-~/.config}/hiraishin/preferences.toml`
+- Project-local override (optional, checked into or beside a repo): `.hiraishin.toml` (only task rules, profile override, and pins; never inventory or credentials)
+- Precedence: CLI/runtime flags (`--provider`, `hiraishin pin`, `hiraishin pause`) > `.hiraishin.toml` > `~/.config/hiraishin/preferences.toml`.
 
 ## Full TOML Schema (Commented)
 
@@ -18,7 +18,7 @@ schema_version = 1
 # Global defaults & active objective profile
 # ---------------------------------------------------------------------------
 [general]
-# Default terminal adapter when not passed to `aq run`: "process" | "tmux" | "orca"
+# Default terminal adapter when not passed to `hiraishin run`: "process" | "tmux" | "orca"
 default_terminal_adapter = "tmux"
 
 # Active objective profile:
@@ -78,7 +78,7 @@ weight_build_failures = 0.20   # Fewer build/gate failures
 weight_duration       = 0.10   # Faster completion relative to role median
 
 # ---------------------------------------------------------------------------
-# Provider inventory (`aq init` detects installed CLIs/logins; user confirms)
+# Provider inventory (`hiraishin init` detects installed CLIs/logins; user confirms)
 # ---------------------------------------------------------------------------
 [providers.<provider_id>]
 enabled = true
@@ -111,7 +111,7 @@ scarcity_tier = 5
 # User-assigned speed/responsiveness rating (1..5, higher = faster).
 speed_tier = 3
 
-# Hard cap on concurrent jobs launched by `aq` on this provider.
+# Hard cap on concurrent jobs launched by `hiraishin` on this provider.
 max_concurrent = 4
 
 # Optional command wrapper (e.g. "flock ~/.agy.lock" for single-flight CLIs).
@@ -133,7 +133,7 @@ poll_interval_sec = 120        # Minimum poll interval (respect vendor rate limi
 quota_axi_fallback = false     # Allow calling `quota-axi --json` as a sensor probe
 
 # ---------------------------------------------------------------------------
-# Task rules: keyed by role name (`aq run --role <role>`)
+# Task rules: keyed by role name (`hiraishin run --role <role>`)
 # ---------------------------------------------------------------------------
 [roles.<role_name>]
 # Ordered list of allowed providers. Hard gate: providers not listed here are
@@ -610,11 +610,11 @@ $$\Delta_{\text{learn}}(p, r) = \text{clamp}\left((\hat{y}_{p,r} - \bar{y}_r) \c
 
 - **Cannot break a rule:** Learning runs only in Stage 2 after Stage 1 hard gates. It can never enable a denied provider, bypass `min_quality_tier`, override a pin, or turn on a metered API.
 - **Cold-start protection:** $\Delta_{\text{learn}} = 0$ until `samples >= min_samples` (default `5`).
-- **One-command freeze:** `aq learn freeze` (or `aq learn freeze --provider kimi-native --role gameplay`) sets `frozen = 1`. Outcomes continue to be logged for visibility, while `bounded_delta` stays locked at its current value. `aq learn reset` zeroes `bounded_delta` back to `0.0`.
+- **One-command freeze:** `hiraishin learn freeze` (or `hiraishin learn freeze --provider kimi-native --role gameplay`) sets `frozen = 1`. Outcomes continue to be logged for visibility, while `bounded_delta` stays locked at its current value. `hiraishin learn reset` zeroes `bounded_delta` back to `0.0`.
 
 ## The `why` Output Format
 
-Every decision is stored in the `decisions` table and inspectable with `aq why <job_id>` (or `aq why <decision_id>`, `--json` for scripts/MCP):
+Every decision is stored in the `decisions` table and inspectable with `hiraishin why <job_id>` (or `hiraishin why <decision_id>`, `--json` for scripts/MCP):
 
 ```text
 Decision: dec_01J9X4K2M8 (initial_dispatch)
@@ -641,15 +641,15 @@ burn-expiring-first, outweighing claude-sonnet's higher learned score (+0.059).
 
 ## Runtime Commands
 
-All runtime overrides write an event to the ledger and take effect immediately without restarting `aq watch`:
+All runtime overrides write an event to the ledger and take effect immediately without restarting `hiraishin watch`:
 
 | Command | Effect | Scope / Persistence |
 |---|---|---|
-| `aq profile set <name>` | Switches `active_profile` (`quality-first`, `burn-expiring-first`, `save-scarce`, `balanced`, `custom`) | Persists in runtime state until changed |
-| `aq prefer <provider> [--role <role>] [--ttl 2h]` | Temporarily boosts `<provider>` to first position in `allowed_providers` (adds `+0.15` preference bonus while still obeying hard gates) | Optional TTL; default until cleared |
-| `aq pin <job_id> <provider>` | Pins a job to `<provider>` and sets `never_switch = true` | Job lifetime (or `aq unpin <job_id>`) |
-| `aq pause <provider> [--reason "..."]` | Transitions provider to `PAUSED`; no new dispatches or failovers | Until `aq resume <provider>` |
-| `aq drain <provider> [--reason "..."]` | Transitions provider to `DRAINING`; running jobs finish, then transitions to `PAUSED` | Until `aq resume <provider>` |
-| `aq resume <provider>` | Returns a `PAUSED` or `DRAINING` provider to `AVAILABLE` (or `EXHAUSTED` if window is still empty) | Immediate |
-| `aq why <job_id \| decision_id> [--all] [--json]` | Prints the full Stage 1 & Stage 2 trace for the latest (or all) scheduling decisions | Read-only |
-| `aq learn status \| freeze \| unfreeze \| reset` | Inspects per-(provider, role) EWMA stats, freezes updates, or resets deltas to `0.0` | Global or `--provider` + `--role` |
+| `hiraishin profile set <name>` | Switches `active_profile` (`quality-first`, `burn-expiring-first`, `save-scarce`, `balanced`, `custom`) | Persists in runtime state until changed |
+| `hiraishin prefer <provider> [--role <role>] [--ttl 2h]` | Temporarily boosts `<provider>` to first position in `allowed_providers` (adds `+0.15` preference bonus while still obeying hard gates) | Optional TTL; default until cleared |
+| `hiraishin pin <job_id> <provider>` | Pins a job to `<provider>` and sets `never_switch = true` | Job lifetime (or `hiraishin unpin <job_id>`) |
+| `hiraishin pause <provider> [--reason "..."]` | Transitions provider to `PAUSED`; no new dispatches or failovers | Until `hiraishin resume <provider>` |
+| `hiraishin drain <provider> [--reason "..."]` | Transitions provider to `DRAINING`; running jobs finish, then transitions to `PAUSED` | Until `hiraishin resume <provider>` |
+| `hiraishin resume <provider>` | Returns a `PAUSED` or `DRAINING` provider to `AVAILABLE` (or `EXHAUSTED` if window is still empty) | Immediate |
+| `hiraishin why <job_id \| decision_id> [--all] [--json]` | Prints the full Stage 1 & Stage 2 trace for the latest (or all) scheduling decisions | Read-only |
+| `hiraishin learn status \| freeze \| unfreeze \| reset` | Inspects per-(provider, role) EWMA stats, freezes updates, or resets deltas to `0.0` | Global or `--provider` + `--role` |

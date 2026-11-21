@@ -9,7 +9,7 @@ Developers hate "smart" routers that silently downgrade a tough concurrency bug 
 
 ## Sections
 
-1. **Why Opaque Auto-Routers Lose Trust**
+1. **Why Ophiraishinue Auto-Routers Lose Trust**
    - The control problem in developer tooling: one surprise bad routing decision destroys confidence in twenty good ones.
    - Contrast black-box bandit routers with glass-box policy engines ([ADR 0005](../adr/0005-user-preferences-over-learned-scores.md)).
 2. **Two-Stage Scheduling: Hard Gates First, Scoring Second**
@@ -17,14 +17,14 @@ Developers hate "smart" routers that silently downgrade a tough concurrency bug 
    - Stage 2 (linear, inspectable): weighted sum of normalized Quality, Expiry, Scarcity, Latency + list-order tie-break + clamped learned delta.
 3. **Bounded Learning Without Drift**
    - How per-`(provider, role)` outcomes (completion without rescue, PR review rounds, build/gate failures, duration vs. median) feed an EWMA clamped to `[-0.12, +0.12]`.
-   - Why `min_samples = 5`, `aq learn freeze`, and `aq learn reset` matter when a provider changes model quality overnight.
-   - Mirroring outcomes into `ai-memory` (`aq/outcomes/`) so both humans and agents can audit empirical performance over weeks.
-4. **Explainability as a First-Class CLI Primitive (`aq why`)**
-   - Walk through a real `aq why` output line by line, showing why a candidate won and why each rejected candidate failed.
+   - Why `min_samples = 5`, `hiraishin learn freeze`, and `hiraishin learn reset` matter when a provider changes model quality overnight.
+   - Mirroring outcomes into `ai-memory` (`hiraishin/outcomes/`) so both humans and agents can audit empirical performance over weeks.
+4. **Explainability as a First-Class CLI Primitive (`hiraishin why`)**
+   - Walk through a real `hiraishin why` output line by line, showing why a candidate won and why each rejected candidate failed.
    - Runtime overrides (`prefer`, `pin`, `pause`, `drain`, `profile set`) that change behavior in one command without editing TOML.
 
 ## Figures & Data Needed
 
-- **Figure 1 (Diagram):** Two-stage funnel (Stage 1 Hard Gates -> Stage 2 Linear Score + Clamped $\Delta_{\text{learn}} \in [-0.12, +0.12]$ -> `decisions` table -> `aq why`).
-- **Figure 2 (Annotated Terminal Output):** Real `aq why` readout from `docs/preferences.md` showing exact feature contributions and rejection reasons.
+- **Figure 1 (Diagram):** Two-stage funnel (Stage 1 Hard Gates -> Stage 2 Linear Score + Clamped $\Delta_{\text{learn}} \in [-0.12, +0.12]$ -> `decisions` table -> `hiraishin why`).
+- **Figure 2 (Annotated Terminal Output):** Real `hiraishin why` readout from `docs/preferences.md` showing exact feature contributions and rejection reasons.
 - **Worked Example Table:** Three real `mmorpg` roles (`engine`, `gameplay`, `mechanical`) showing how `quality-first`, `burn-expiring-first`, and `save-scarce` rank the same 4 providers differently while obeying the same hard gates.

@@ -1,6 +1,6 @@
 # Provider: Z.AI GLM Coding Plan (Zhipu AI)
 
-`aq` supports **both** Z.AI's officially recommended harnesses for the GLM Coding Plan (Claude Code routed to Z.AI's Anthropic-compatible endpoint, ZCode, and OpenAI-compatible coding harnesses) **and** running GLM through **OpenCode** (`opencode` with `glm-worker` and `glm-strong`).
+`hiraishin` supports **both** Z.AI's officially recommended harnesses for the GLM Coding Plan (Claude Code routed to Z.AI's Anthropic-compatible endpoint, ZCode, and OpenAI-compatible coding harnesses) **and** running GLM through **OpenCode** (`opencode` with `glm-worker` and `glm-strong`).
 
 Primary references:
 - [Z.AI GLM Coding Plan Documentation](https://docs.z.ai/devpack)
@@ -33,7 +33,7 @@ Z.AI does not ship a standalone terminal-only CLI equivalent to `claude` or `cod
    - Note: Z.AI maps Claude model slot names to GLM Coding Plan models (e.g. `GLM-5.3` / `GLM-5.3-Flash`) on the server side (`ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` overrides `[unverified exact current env var names in latest @z_ai/coding-helper]`).
    - **Resume semantics:** Inherits `claude --resume <session_id>` and `claude --continue`.
 2. **ZCode (Z.AI's native Agentic Development Environment):**
-   - GUI/ADE tuned for GLM Coding Plan ([docs.z.ai/devpack](https://docs.z.ai/devpack)). Not headless-scriptable from `aq` `[unverified whether ZCode exposes a CLI entrypoint]`.
+   - GUI/ADE tuned for GLM Coding Plan ([docs.z.ai/devpack](https://docs.z.ai/devpack)). Not headless-scriptable from `hiraishin` `[unverified whether ZCode exposes a CLI entrypoint]`.
 3. **OpenAI-compatible Coding Endpoint (for Cline, Roo Code, Kilo Code, OpenCode):**
    - Base URL: `https://api.z.ai/api/coding/paas/v4`
 
@@ -122,7 +122,7 @@ Key policy boundaries from Z.AI's Coding Plan Usage Policy:
 - Coding Plan quotas are restricted to **officially supported coding and office tools** (ZCode, Claude Code, OpenCode, Cline, Roo Code, Kilo Code, Cursor).
 - Using the Coding Plan endpoints (`api.z.ai/api/anthropic`, `api.z.ai/api/coding/paas/v4`) for general-purpose non-coding APIs, standalone SaaS backends, proxying, or reselling to third parties is prohibited and can result in throttling or suspension.
 - `[unverified exact verbatim ToS quote]`: Direct text of Z.AI's legal Terms of Service page could not be fetched verbatim; verify exact section numbers and verbatim language on `z.ai` / `docs.z.ai` before v0.1 release.
-- **Compliance boundary for `aq`:** `aq` only launches officially supported harnesses (`claude` via `api.z.ai/api/anthropic` or `opencode`) locally for the subscriber's own coding worktrees, never proxies or resells access ([ADR 0001](../adr/0001-no-proxy.md)).
+- **Compliance boundary for `hiraishin`:** `hiraishin` only launches officially supported harnesses (`claude` via `api.z.ai/api/anthropic` or `opencode`) locally for the subscriber's own coding worktrees, never proxies or resells access ([ADR 0001](../adr/0001-no-proxy.md)).
 
 ## Open Risks
 

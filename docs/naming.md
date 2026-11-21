@@ -1,12 +1,12 @@
 # Naming Shortlist
 
-Working placeholder: `aq`. The project targets an open-source portfolio release with a memorable anime/manga-inspired name whose metaphor maps directly onto quota scheduling and worktree failover.
+Final name: `hiraishin` (chosen 2026-11-21; the working placeholder was `hiraishin`). The project targets an open-source portfolio release with a memorable anime/manga-inspired name whose metaphor maps directly onto quota scheduling and worktree failover.
 
 > **Verification scope (2026-11-21):** Availability checks below use public web search over GitHub, npm, crates.io, and domain presence. No registrar/WHOIS queries were executed and no names, repositories, or domains were registered. Verify exact availability at the registrar and package registries immediately before claiming.
 
 ## Candidate Shortlist
 
-| Candidate | Origin & Metaphor | Mapping to `aq` | GitHub | npm | crates.io | Domains (`.dev`/`.sh`/`.io`) | Verdict |
+| Candidate | Origin & Metaphor | Mapping to the tool | GitHub | npm | crates.io | Domains (`.dev`/`.sh`/`.io`) | Verdict |
 |---|---|---|---|---|---|---|---|
 | **`hiraishin`** | *Naruto* — Flying Thunder God (*Hiraishin no Jutsu*): mark a physical location with a seal and teleport instantaneously back to it. | **Exact fit.** The git worktree is the marked seal; on quota exhaustion, failover teleports the job to another agent at the exact marked worktree without losing work. | Small unrelated PyTorch-Lightning wrapper ([S-aiueo32/hiraishin](https://github.com/S-aiueo32/hiraishin)); **zero coding-agent or quota tools**. | **Appears free** (no exact top-level package match found). | **Appears free** (no exact crate match found). | No active dev-tool site found `[verify at registrar]` | **Top recommendation** |
 | **`byakugan`** | *Naruto* — White Eye: 360-degree x-ray vision seeing chakra flow and tenketsu pathways. | Strong metaphor for **quota visibility / sensor inspection**, weaker for dispatch & failover. | Security ML model scanner ([Armur-Ai/byakugan](https://github.com/Armur-Ai/byakugan)), macOS OCR ([Custard/byakugan-scan](https://github.com/Custard/byakugan-scan)), Bazel watcher ([pulanski/byakugan](https://github.com/pulanski/byakugan)). | **Appears free** as exact top-level package. | **Appears free**. | No dominant tool site `[verify at registrar]` | **Best as sub-component name** (sensor/dashboard) |

@@ -1,6 +1,6 @@
 # Optional Stack Integrations (`ai-memory`, `qmd`, `graphify`)
 
-`aq` runs standalone with zero external dependencies beyond the target coding-agent CLIs and git. When `ai-memory`, `qmd`, or `graphify` are installed on the workstation, `aq` integrates with them through narrow, optional Go adapter interfaces. Every integration degrades gracefully to a no-op if disabled, missing from `PATH`, unreachable, or timed out.
+`hiraishin` runs standalone with zero external dependencies beyond the target coding-agent CLIs and git. When `ai-memory`, `qmd`, or `graphify` are installed on the workstation, `hiraishin` integrates with them through narrow, optional Go adapter interfaces. Every integration degrades gracefully to a no-op if disabled, missing from `PATH`, unreachable, or timed out.
 
 ## Adapter Architecture
 
@@ -51,7 +51,7 @@ type MemoryAdapter interface {
 
 ### Concrete Flows
 
-1. **Scope resolution:** Before any project-scoped call, the adapter reads the nearest `.ai-memory.toml` from `job.worktree_path` (falling back to normalized git remote path without host, then folder basename). Because `aq` acts as a static MCP client, it always passes `workspace` and `project` explicitly on every project-scoped call.
+1. **Scope resolution:** Before any project-scoped call, the adapter reads the nearest `.ai-memory.toml` from `job.worktree_path` (falling back to normalized git remote path without host, then folder basename). Because `hiraishin` acts as a static MCP client, it always passes `workspace` and `project` explicitly on every project-scoped call.
 2. **Building the failover resume prompt (cut-off session recovery):**
    - When `Failover Watcher` stops Provider A on quota exhaustion, `Dispatcher` calls `FetchRecovery`:
      1. Calls `memory_handoff_list(workspace, project)` to check for an open handoff and `newer_unended_session`.
@@ -60,15 +60,15 @@ type MemoryAdapter interface {
    - `Dispatcher` injects a compact `<previous-session-recovery>` block (capped at 2,500 chars) into Provider B's resume prompt alongside `git status --porcelain`, `git diff --stat`, and `report.md`.
    - Optionally calls `memory_handoff_begin(workspace, project, cwd=worktree, summary=..., files_touched=..., next_steps=..., shared=true)` when launching a harness that supports `ai-memory`'s `SessionStart` hook (e.g. Claude Code, Codex, OpenCode), so the new session automatically receives the handoff block.
 3. **Writing job outcomes and routing decisions:**
-   - On `job.completed` or `job.failed` (when `integrations.ai_memory.record_outcomes = true`), `aq` calls `memory_write_page` with:
-     - `path`: `aq/outcomes/<YYYY-MM-DD>-<job_name>-<job_id>.md`
+   - On `job.completed` or `job.failed` (when `integrations.ai_memory.record_outcomes = true`), `hiraishin` calls `memory_write_page` with:
+     - `path`: `hiraishin/outcomes/<YYYY-MM-DD>-<job_name>-<job_id>.md`
      - `tier`: `episodic`
-     - `kind`: `aq-outcome`
-     - `tags`: `["aq", "role:<role>", "provider:<provider_id>"]`
+     - `kind`: `hiraishin-outcome`
+     - `tags`: `["hiraishin", "role:<role>", "provider:<provider_id>"]`
      - `body`: `# Outcome: <job_name>` followed by provider chain (initial + failovers), decision `why` summary, review rounds, build failures, wall duration, and final commit/PR URL.
-   - Note: `aq` omits the `title` parameter and puts `# H1` on line 1 of `body` (avoiding `ai-memory` JSON-escaping issue #67).
-   - Both the user ("how did `kimi-native` perform on `gameplay` tasks this week?") and future sessions can query these pages via `memory_query(path_prefix="aq/outcomes/", tag="role:gameplay")`.
-   - `aq`'s SQLite `learning_stats` table remains the local source of truth for bounded learning math; `ai-memory` mirrors outcomes for cross-session search and auditability.
+   - Note: `hiraishin` omits the `title` parameter and puts `# H1` on line 1 of `body` (avoiding `ai-memory` JSON-escaping issue #67).
+   - Both the user ("how did `kimi-native` perform on `gameplay` tasks this week?") and future sessions can query these pages via `memory_query(path_prefix="hiraishin/outcomes/", tag="role:gameplay")`.
+   - `hiraishin`'s SQLite `learning_stats` table remains the local source of truth for bounded learning math; `ai-memory` mirrors outcomes for cross-session search and auditability.
 
 ### Behavior When `ai-memory` Is Absent
 
@@ -110,7 +110,7 @@ type SearchAdapter interface {
    - Using `--no-rerank` keeps latency under a few hundred milliseconds on CPU (avoiding GPU contention with local AI jobs).
    - `Dispatcher` filters out the job's own `brief_path` (already linked directly) and includes a compact list of `qmd://` references + 10-line snippets (e.g., related ADRs, gotchas for modified subsystems, prior reports from sibling fronts) in the resume prompt.
    - Instead of the resumed agent burning 5–10 tool turns grepping `docs/` and `~/orca/briefs/`, it starts with the exact files and line numbers (`file.md:100:40`) ready to read.
-2. **Collection freshness:** `aq` never runs `qmd embed` or `qmd update` automatically during dispatch (to avoid CPU/GPU spikes); it reads the existing index as-is.
+2. **Collection freshness:** `hiraishin` never runs `qmd embed` or `qmd update` automatically during dispatch (to avoid CPU/GPU spikes); it reads the existing index as-is.
 
 ### Behavior When `qmd` Is Absent
 
@@ -155,11 +155,11 @@ type GraphAdapter interface {
      - Tier escalation rule (only raises, never lowers the user's configured `min_quality_tier`):
        - `touches_god_node == true` OR `communities_spanned >= 3` -> raise `effective_min_quality_tier` to at least `4` (or `5` if `blast_radius_edges >= 40`).
        - Localized single-community change (`touched_files <= 3`, `communities_spanned == 1`, no god node) -> keep the role's configured `min_quality_tier` as-is (safe for lower-tier/faster providers like `glm-flash` or `kimi-native`).
-     - The sizing inputs and resulting `effective_min_quality_tier` are recorded verbatim in `decisions.candidates_json` and printed by `aq why`.
+     - The sizing inputs and resulting `effective_min_quality_tier` are recorded verbatim in `decisions.candidates_json` and printed by `hiraishin why`.
 2. **Compact graph context on failover:**
    - During mid-task failover, instead of forcing Provider B to explore the entire repository from scratch, `Dispatcher` calls `ResumeSubgraph` (equivalent to `query_graph(mode="bfs", depth=2, token_budget=1500)` anchored on the modified files/symbols from `git diff --name-only`).
    - Appends a compact `<codebase-subgraph>` block (<= 1,500 tokens) listing the modified nodes, their direct callers/callees, and the community labels they belong to.
-3. **Zero LLM cost in `aq`:** `aq` reads `graphify-out/graph.json` (or calls `graphify`'s read-only MCP/CLI query tools) and **never** triggers a full graph rebuild or LLM semantic extraction.
+3. **Zero LLM cost in `hiraishin`:** `hiraishin` reads `graphify-out/graph.json` (or calls `graphify`'s read-only MCP/CLI query tools) and **never** triggers a full graph rebuild or LLM semantic extraction.
 
 ### Behavior When `graphify` Is Absent
 

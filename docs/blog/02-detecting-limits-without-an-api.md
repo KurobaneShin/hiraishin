@@ -10,7 +10,7 @@ If you refuse to put a reverse proxy in front of your coding agents, you lose th
 ## Sections
 
 1. **The Constraint: No Proxy, No Cookie Scraping**
-   - Why `aq` treats official CLIs (`claude`, `kimi`, `opencode`, `agy`, `codex`, `gemini`) as black-box child processes.
+   - Why `hiraishin` treats official CLIs (`claude`, `kimi`, `opencode`, `agy`, `codex`, `gemini`) as black-box child processes.
 2. **The Four-Tier Sensor Hierarchy**
    - Tier 1: Read-only first-party usage endpoints (`api.anthropic.com/api/oauth/usage`, `api.kimi.com/coding/v1/usages`, `api.z.ai/api/monitor/usage/quota/limit`) — exact percentages, but fragile schemas and strict rate limits (e.g. Anthropic `429` with `retry-after: 0`).
    - Tier 2: Local harness storage (`~/.claude/projects/**/*.jsonl`, `~/.codex/sessions/**/rollout-*.jsonl`, `~/.local/share/opencode/opencode.db` — which reached 8.8 GB on a single dev box, requiring indexed queries or `opencode stats`).
@@ -21,7 +21,7 @@ If you refuse to put a reverse proxy in front of your coding agents, you lose th
    - `EXHAUSTED` vs. `AUTH_ERROR` (why `agy` `401 UNAUTHENTICATED` must wake the human instead of waiting 5 hours for a phantom reset).
    - Shared quota pools (`claude-opus` + `claude-sonnet` sharing one Claude Max pool; `glm-strong` burning 3–4x faster than `glm-flash` out of one Z.AI pool).
 4. **Learning From Prior Art (`quota-axi` and `quotamux`)**
-   - How `quota-axi` solves read-only multi-vendor probing and how `aq` uses recorded test fixtures so regex regressions fail CI immediately.
+   - How `quota-axi` solves read-only multi-vendor probing and how `hiraishin` uses recorded test fixtures so regex regressions fail CI immediately.
 
 ## Figures & Data Needed
 
