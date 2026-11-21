@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -u
+if [ -n "${MOCK_FIXTURE:-}" ]; then cat "$MOCK_FIXTURE"; exit 0; fi
+report_of() { printf '%s\n' "$1" | sed -n -e 's/^Keep \(.*\) current with progress.*/\1/p' -e 's/^Report: //p' | head -n 1; }
+prompt="${@: -1}"
+printf '%s' "$prompt" > .git/agy-prompt.txt
+if [ -f .git/hang ]; then exec sleep 60; fi
+echo "- [x] agy: finished the brief" >> "$(report_of "$prompt")"
+exit 0
