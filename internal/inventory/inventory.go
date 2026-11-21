@@ -1,10 +1,13 @@
 package inventory
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -15,6 +18,8 @@ type System struct {
 	LookPath func(string) (string, error)
 	ReadFile func(string) ([]byte, error)
 	Getenv   func(string) string
+	Stat     func(string) (fs.FileInfo, error)
+	Glob     func(string) ([]string, error)
 }
 
 type Found struct {
@@ -23,10 +28,18 @@ type Found struct {
 	Provider config.Provider
 }
 
-func Detect(sys System) ([]Found, error) {
+func Detect(sys System, claudeDirs []string) ([]Found, error) {
 	var found []Found
 	if path, err := sys.LookPath("claude"); err == nil {
-		found = append(found, Found{ID: "claude", Binary: path, Provider: provider(config.HarnessClaudeCode, "", "", 5, 4, 3, 2, "claude-max", "")})
+		accounts, err := claudeAccounts(sys, claudeDirs)
+		if err != nil {
+			return nil, err
+		}
+		for _, acc := range accounts {
+			p := provider(config.HarnessClaudeCode, "", "", 5, 4, 3, 2, acc.pool, "")
+			p.ConfigDir = acc.dir
+			found = append(found, Found{ID: acc.id, Binary: path, Provider: p})
+		}
 		if sys.Getenv("ZAI_API_KEY") != "" {
 			found = append(found, Found{ID: "glm-claude", Binary: path, Provider: provider(config.HarnessGLMClaude, "", "", 3, 2, 4, 2, "zai-coding-plan", "ZAI_API_KEY")})
 		}
@@ -48,6 +61,79 @@ func Detect(sys System) ([]Found, error) {
 		found = append(found, Found{ID: "agy", Binary: path, Provider: provider(config.HarnessAgy, "", "", 4, 3, 4, 1, "google-antigravity", "")})
 	}
 	return found, nil
+}
+
+type claudeAccount struct {
+	id, dir, pool string
+}
+
+var labelChars = regexp.MustCompile(`[^a-z0-9]+`)
+
+func claudeLabel(dir string) string {
+	base := filepath.Base(dir)
+	if slices.Contains([]string{"home", ".claude", "claude", ".config"}, base) {
+		base = filepath.Base(filepath.Dir(dir))
+	}
+	label := strings.Trim(labelChars.ReplaceAllString(strings.ToLower(base), "-"), "-")
+	return cmp.Or(label[:min(len(label), 8)], "alt")
+}
+
+func (sys System) isClaudeDir(dir string) bool {
+	if fi, err := sys.Stat(dir); err != nil || !fi.IsDir() {
+		return false
+	}
+	for _, marker := range []string{".credentials.json", ".claude.json", "projects"} {
+		if _, err := sys.Stat(filepath.Join(dir, marker)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func claudeAccounts(sys System, patterns []string) ([]claudeAccount, error) {
+	home := sys.Getenv("HOME")
+	def := filepath.Join(home, ".claude")
+	candidates := []string{def}
+	if env := sys.Getenv("CLAUDE_CONFIG_DIR"); env != "" {
+		candidates = append(candidates, env)
+	}
+	for _, pat := range patterns {
+		matches, err := sys.Glob(config.ExpandHome(pat, home))
+		if err != nil {
+			return nil, fmt.Errorf("--claude-config-dir %q: %w", pat, err)
+		}
+		candidates = append(candidates, matches...)
+	}
+	seen := map[string]bool{}
+	ids := map[string]bool{}
+	var out []claudeAccount
+	for _, dir := range candidates {
+		dir = filepath.Clean(dir)
+		if seen[dir] || !sys.isClaudeDir(dir) {
+			continue
+		}
+		seen[dir] = true
+		if dir == def {
+			out = append(out, claudeAccount{id: "claude", pool: "claude-max"})
+			ids["claude"] = true
+			continue
+		}
+		label := claudeLabel(dir)
+		id := "claude-" + label
+		for n := 2; ids[id]; n++ {
+			id = fmt.Sprintf("claude-%s-%d", label, n)
+		}
+		ids[id] = true
+		stored := dir
+		if rel, ok := strings.CutPrefix(dir, home+string(filepath.Separator)); ok && home != "" {
+			stored = "~/" + rel
+		}
+		out = append(out, claudeAccount{id: id, dir: stored, pool: "claude-max-" + strings.TrimPrefix(id, "claude-")})
+	}
+	if len(out) == 0 {
+		out = append(out, claudeAccount{id: "claude", pool: "claude-max"})
+	}
+	return out, nil
 }
 
 func openCodeAgents(sys System) ([]Found, error) {

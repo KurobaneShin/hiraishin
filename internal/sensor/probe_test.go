@@ -113,7 +113,7 @@ not json
 	if err := os.WriteFile(filepath.Join(dir, "s.jsonl"), []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	n, err := ClaudeTokens(home, now.Add(-5*time.Hour))
+	n, err := ClaudeTokens(ClaudeDir(config.Provider{}, home), now.Add(-5*time.Hour))
 	if err != nil || n != 160 {
 		t.Fatalf("claude tokens = %d, %v; want 160", n, err)
 	}
@@ -127,6 +127,9 @@ not json
 	turns, err := AgyTurns(home, time.Time{})
 	if err != nil || turns != 3 {
 		t.Fatalf("agy turns = %d, %v", turns, err)
+	}
+	if got := ClaudeDir(config.Provider{ConfigDir: "~/profiles/b"}, home); got != filepath.Join(home, "profiles", "b") {
+		t.Errorf("ClaudeDir = %q", got)
 	}
 	if n, err := ClaudeTokens(filepath.Join(home, "missing"), now); err != nil || n != 0 {
 		t.Fatalf("missing dir = %d, %v", n, err)

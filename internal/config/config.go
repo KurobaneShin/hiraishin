@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -66,6 +67,7 @@ type Provider struct {
 	LaunchPrefix    []string `toml:"launch_prefix,omitempty"`
 	SharedQuotaPool string   `toml:"shared_quota_pool,omitempty"`
 	APIKeyEnv       string   `toml:"api_key_env,omitempty"`
+	ConfigDir       string   `toml:"config_dir,omitempty"`
 	Windows         []Window `toml:"windows,omitempty"`
 	Sensor          Sensor   `toml:"sensor,omitempty"`
 }
@@ -280,7 +282,39 @@ func (c *Config) Validate() error {
 	for name, r := range c.Roles {
 		errs = append(errs, c.validateRole(name, r)...)
 	}
+	errs = append(errs, c.validateClaudeAccounts()...)
 	return errors.Join(errs...)
+}
+
+func ExpandHome(path, home string) string {
+	if path == "~" {
+		return home
+	}
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		return filepath.Join(home, rest)
+	}
+	return path
+}
+
+func (c *Config) validateClaudeAccounts() []error {
+	var errs []error
+	owner := map[string]string{}
+	for _, id := range c.ProviderIDs() {
+		p := c.Providers[id]
+		if p.Harness != HarnessClaudeCode {
+			continue
+		}
+		dir := filepath.Clean(cmp.Or(p.ConfigDir, "~/.claude"))
+		other, dup := owner[dir]
+		if !dup {
+			owner[dir] = id
+			continue
+		}
+		if q := c.Providers[other]; q.SharedQuotaPool == "" || q.SharedQuotaPool != p.SharedQuotaPool {
+			errs = append(errs, fmt.Errorf("providers.%s and providers.%s use the same Claude account (config_dir %s): set different config_dir values or the same shared_quota_pool", other, id, dir))
+		}
+	}
+	return errs
 }
 
 func (c *Config) validateProvider(id string, p Provider) []error {
@@ -304,6 +338,14 @@ func (c *Config) validateProvider(id string, p Provider) []error {
 	}
 	if p.APIKeyEnv != "" && !envName.MatchString(p.APIKeyEnv) {
 		add("api_key_env must name an environment variable (A-Z, 0-9, _), never hold the key itself")
+	}
+	if p.ConfigDir != "" {
+		if p.Harness != HarnessClaudeCode && p.Harness != HarnessGLMClaude {
+			add("config_dir is only supported for claude-code and glm-claude")
+		}
+		if !filepath.IsAbs(p.ConfigDir) && p.ConfigDir != "~" && !strings.HasPrefix(p.ConfigDir, "~/") {
+			add("config_dir %q must be an absolute path or start with ~/", p.ConfigDir)
+		}
 	}
 	if p.Harness == HarnessGLMClaude && p.APIKeyEnv == "" {
 		add("harness glm-claude needs api_key_env (the variable holding the Z.AI key)")

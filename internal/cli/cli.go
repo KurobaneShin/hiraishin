@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -22,6 +25,8 @@ type Env struct {
 	Getenv      func(string) string
 	LookPath    func(string) (string, error)
 	ReadFile    func(string) ([]byte, error)
+	Stat        func(string) (fs.FileInfo, error)
+	Glob        func(string) ([]string, error)
 	Now         func() time.Time
 	Interactive bool
 }
@@ -44,6 +49,12 @@ const (
 func Run(ctx context.Context, args []string, env Env) int {
 	if env.Now == nil {
 		env.Now = time.Now
+	}
+	if env.Stat == nil {
+		env.Stat = os.Stat
+	}
+	if env.Glob == nil {
+		env.Glob = filepath.Glob
 	}
 	a := &app{env: env, paths: config.ResolvePaths(env.Getenv)}
 	root := newRoot(a)

@@ -9,13 +9,22 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/KurobaneShin/hiraishin/internal/config"
 )
 
 const maxLogLine = 4 << 20
 
-func ClaudeTokens(home string, since time.Time) (int64, error) {
+func ClaudeDir(p config.Provider, home string) string {
+	if p.ConfigDir == "" {
+		return filepath.Join(home, ".claude")
+	}
+	return config.ExpandHome(p.ConfigDir, home)
+}
+
+func ClaudeTokens(configDir string, since time.Time) (int64, error) {
 	var total int64
-	err := walkRecent(filepath.Join(home, ".claude", "projects"), since, func(path string) bool { return strings.HasSuffix(path, ".jsonl") }, func(line []byte) {
+	err := walkRecent(filepath.Join(configDir, "projects"), since, func(path string) bool { return strings.HasSuffix(path, ".jsonl") }, func(line []byte) {
 		var rec struct {
 			Timestamp time.Time `json:"timestamp"`
 			Message   struct {

@@ -87,6 +87,15 @@ func TestValidationErrors(t *testing.T) {
 		}, "poll_interval_sec = 10"},
 		{"rolling without duration", func(s string) string { return strings.Replace(s, "duration_hours = 5", "", 1) }, "duration_hours > 0"},
 		{"unknown profile", func(s string) string { return s + "\n[general]\nactive_profile = \"yolo\"\n" }, "unknown profile"},
+		{"config_dir on kimi", func(s string) string {
+			return strings.Replace(s, "speed_tier = 4", "speed_tier = 4\nconfig_dir = \"~/k\"", 1)
+		}, "config_dir is only supported"},
+		{"relative config_dir", func(s string) string {
+			return strings.Replace(strings.Replace(s, "kimi-native", "claude-code", 1), "speed_tier = 4", "speed_tier = 4\nconfig_dir = \"rel/x\"", 1)
+		}, "must be an absolute path"},
+		{"same claude account twice", func(s string) string {
+			return strings.Replace(s, "kimi-native", "claude-code", 1) + "\n[providers.b]\nharness = \"claude-code\"\nquality_tier = 4\nscarcity_tier = 2\nspeed_tier = 4\n"
+		}, "use the same Claude account"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

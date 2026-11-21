@@ -121,6 +121,14 @@ launch_prefix = []
 # endpoint sensors use it). Only the variable name is stored, never the key.
 api_key_env = ""
 
+# claude-code / glm-claude only: the Claude Code config dir of this account
+# (exported as CLAUDE_CONFIG_DIR; absolute or ~/). Empty means the default
+# ~/.claude, and an inherited CLAUDE_CONFIG_DIR is unset. Give each account
+# its own provider and config_dir to fail over between accounts; two providers
+# on the same config_dir must share a shared_quota_pool.
+# `hiraishin init --claude-config-dir '<path or glob>'` adds one provider per dir.
+config_dir = ""
+
 # Quota windows. Auto-detected when a sensor supports it; typed values act as
 # fallback when a sensor is offline or unavailable.
 [[providers.<provider_id>.windows]]
@@ -217,6 +225,7 @@ quality_tier = 5
 scarcity_tier = 4
 speed_tier = 3
 max_concurrent = 2
+shared_quota_pool = "claude-max-account"
 
 [[providers.claude-opus.windows]]
 name = "5h"

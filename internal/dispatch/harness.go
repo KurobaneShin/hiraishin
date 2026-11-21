@@ -18,6 +18,7 @@ type Command struct {
 	Argv   []string
 	Env    [][2]string
 	EnvRef [][2]string
+	Unset  []string
 }
 
 func Build(p config.Provider, worktree string) (Command, error) {
@@ -32,6 +33,11 @@ func Build(p config.Provider, worktree string) (Command, error) {
 		c.Argv = []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", worktree}
 		opt("--model", p.Model)
 		opt("--effort", p.Effort)
+		if p.ConfigDir != "" {
+			c.Env = append(c.Env, [2]string{"CLAUDE_CONFIG_DIR", p.ConfigDir})
+		} else {
+			c.Unset = append(c.Unset, "CLAUDE_CONFIG_DIR")
+		}
 		if p.Harness == config.HarnessGLMClaude {
 			c.Env = append(c.Env, [2]string{"ANTHROPIC_BASE_URL", GLMBaseURL})
 			c.EnvRef = append(c.EnvRef, [2]string{"ANTHROPIC_AUTH_TOKEN", p.APIKeyEnv})

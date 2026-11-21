@@ -143,6 +143,27 @@ func TestProcessAdapterRunsScript(t *testing.T) {
 	}
 }
 
+func TestClaudeConfigDirPerAccount(t *testing.T) {
+	fakeBin(t, "claude", `printf '%s' "${CLAUDE_CONFIG_DIR-unset}" > .git/config-dir.txt`)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "/inherited/profile")
+	for _, tt := range []struct {
+		dir, want string
+	}{{"~/profiles/b/home", filepath.Join(home, "profiles/b/home")}, {"/abs/acc", "/abs/acc"}, {"", "unset"}} {
+		wt := gitRepo(t)
+		dir, script := prepare(t, config.Provider{Harness: config.HarnessClaudeCode, ConfigDir: tt.dir}, wt, "p")
+		a, _ := NewAdapter(AdapterProcess)
+		if _, err := a.Spawn(context.Background(), Launch{Worktree: wt, Script: script}); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, "exit file", func() bool { _, done, _ := ExitCode(dir); return done })
+		if got, _ := os.ReadFile(filepath.Join(wt, ".git", "config-dir.txt")); string(got) != tt.want {
+			t.Errorf("config_dir %q: agent saw CLAUDE_CONFIG_DIR=%q, want %q", tt.dir, got, tt.want)
+		}
+	}
+}
+
 func TestStopKillsProcessGroup(t *testing.T) {
 	fakeBin(t, "kimi", `trap 'echo got-int; exit 130' INT; sleep 30 & wait`)
 	wt := gitRepo(t)

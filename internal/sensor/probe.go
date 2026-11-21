@@ -283,7 +283,7 @@ func (p *Probe) localLogs(f Family, prov config.Provider) ([]Sample, error) {
 		if prov.Harness != config.HarnessClaudeCode {
 			return nil, nil
 		}
-		n, err = ClaudeTokens(p.Home, since)
+		n, err = ClaudeTokens(ClaudeDir(prov, p.Home), since)
 	case FamilyAgy:
 		n, err = AgyTurns(p.Home, since)
 	default:

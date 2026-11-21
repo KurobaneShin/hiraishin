@@ -16,12 +16,13 @@ import (
 func initCmd(a *app) *cobra.Command {
 	var yes, force bool
 	var adapter string
+	var claudeDirs []string
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Detect installed CLIs and write preferences.toml",
 		Args:  args(0, ""),
 		RunE: func(_ *cobra.Command, _ []string) error {
-			found, err := inventory.Detect(inventory.System{LookPath: a.env.LookPath, ReadFile: a.env.ReadFile, Getenv: a.env.Getenv})
+			found, err := inventory.Detect(inventory.System{LookPath: a.env.LookPath, ReadFile: a.env.ReadFile, Getenv: a.env.Getenv, Stat: a.env.Stat, Glob: a.env.Glob}, claudeDirs)
 			if err != nil {
 				return fmt.Errorf("detect CLIs: %w", err)
 			}
@@ -43,6 +44,7 @@ func initCmd(a *app) *cobra.Command {
 	cmd.Flags().BoolVar(&yes, "yes", false, "accept detected defaults without prompting")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing preferences.toml")
 	cmd.Flags().StringVar(&adapter, "adapter", "process", "default terminal adapter: process, tmux or orca")
+	cmd.Flags().StringArrayVar(&claudeDirs, "claude-config-dir", nil, "extra Claude Code config dir (CLAUDE_CONFIG_DIR) to add as its own account; repeatable, globs and ~/ allowed")
 	return cmd
 }
 

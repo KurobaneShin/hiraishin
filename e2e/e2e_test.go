@@ -571,6 +571,70 @@ min_quality_tier = 2
 	}
 }
 
+func TestE2EFailoverBetweenClaudeAccounts(t *testing.T) {
+	home := t.TempDir()
+	acctA := filepath.Join(home, "profiles", "a", "home")
+	acctB := filepath.Join(home, "profiles", "b", "home")
+	e := newEnv(t, fmt.Sprintf(`
+schema_version = 1
+[general]
+active_profile = "burn-expiring-first"
+[providers.claude-a]
+harness = "claude-code"
+config_dir = %q
+shared_quota_pool = "claude-a"
+quality_tier = 5
+scarcity_tier = 3
+speed_tier = 3
+[[providers.claude-a.windows]]
+name = "5h"
+kind = "rolling"
+duration_hours = 5
+[providers.claude-b]
+harness = "claude-code"
+config_dir = %q
+shared_quota_pool = "claude-b"
+quality_tier = 5
+scarcity_tier = 3
+speed_tier = 3
+[[providers.claude-b.windows]]
+name = "5h"
+kind = "rolling"
+duration_hours = 5
+[roles.default]
+allowed_providers = ["claude-a", "claude-b"]
+min_quality_tier = 4
+`, acctA, acctB))
+	e.extra = []string{"MOCK_CLAUDE_LIMITED_DIR=" + acctA, "CLAUDE_CONFIG_DIR=/inherited/from/caller"}
+	j := e.newJob("multi-account")
+	out := e.ok("run", "--brief", j.brief, "--worktree", j.worktree)
+	id := jobID(t, out)
+	if !strings.Contains(out, "on claude-a") {
+		t.Fatalf("first dispatch = %q", out)
+	}
+	e.watch()
+	d, _ := e.why(id)
+	if d.Job.State != "COMPLETED" || len(d.Decisions) != 2 || d.Decisions[1].ChosenProvider != "claude-b" {
+		t.Fatalf("job = %s decisions = %+v", d.Job.State, d.Decisions)
+	}
+	seen, _ := os.ReadFile(filepath.Join(j.worktree, ".git", "claude-accounts.txt"))
+	if string(seen) != acctA+"\n"+acctB+"\n" {
+		t.Errorf("accounts used = %q, want A then B", seen)
+	}
+	if _, err := os.Stat(filepath.Join(j.worktree, "half.go")); err != nil {
+		t.Errorf("account A's dirty file lost: %v", err)
+	}
+	if a := e.count(`SELECT count(*) FROM events WHERE kind = 'provider.limit_hit' AND provider_id = 'claude-a'`); a != 1 {
+		t.Errorf("claude-a limit_hit = %d", a)
+	}
+	if b := e.count(`SELECT count(*) FROM events WHERE kind = 'provider.limit_hit' AND provider_id = 'claude-b'`); b != 0 {
+		t.Errorf("claude-b marked exhausted by account A's limit: %d", b)
+	}
+	if state, _ := e.status().provider("claude-b"); state != "AVAILABLE" {
+		t.Errorf("claude-b = %s", state)
+	}
+}
+
 func TestE2EPausedAndDrainingGetNoDispatches(t *testing.T) {
 	e := newEnv(t, fmt.Sprintf(providersTOML, "5"))
 	e.ok("pause", "kimi", "--reason", "e2e")
