@@ -66,6 +66,21 @@ Before writing v0.1 from scratch, run a 1-hour hands-on evaluation of [`agent-to
 - **Gaps for our stack:** Does not explicitly model perishable-inventory scheduling (`burn-expiring-first` vs. `save-scarce`), does not support native Kimi CLI or `glm-claude`, lacks our bounded per-`(provider, role)` learning + `why` arithmetic, and lacks `ai-memory`/`qmd`/`graphify` failover enrichment.
 - **Action before coding v0.1:** Spend 1 hour testing `aid` locally on a dummy worktree to confirm its exact failover behavior and decide whether any shared concepts or PRs belong upstream.
 
+#### Hands-on result (2026-11-21, `aid` v11.14.1, source `63b6f32`)
+
+Setup: release binary (checksum verified) in a scratch repo under `/tmp`, isolated `AID_HOME`, two mock agents on `PATH`. Agent A (`oz`) edits a tracked file, creates an untracked file, prints `429 You've reached your 5-hour usage limit` and exits 1. Agent B (`codex`) records its cwd, argv, `git status` and `git log`. Command: `aid run oz "Add a feature" -w feat/x --cascade codex`.
+
+| Question | Observed |
+|---|---|
+| Uncommitted files kept? | Yes, but not as dirty files: `failure_salvage` makes a WIP commit (`wip: partial work salvage (task … failed)`) and writes `partial-work.md` in aid's task dir. |
+| Resume on another provider? | Yes, in the same worktree (`inherit_cascade_target`), as a new child task. |
+| Resume context for agent B? | No. Agent B receives the original prompt plus aid's boilerplate. No git status/diff, no reference to `partial-work.md`, no progress report. |
+| Limit classified as quota? | No for this message: the run failed as a generic `exit code 1`; `aid agent quota` still showed the agent as `UNKNOWN`, no hold recorded. Cascade fires on any failure listed in `--cascade`. |
+| Perishable-window scoring, user hard gates with a numeric `why` trace, pause/drain | Not present (aid ranks by advice, price, leaderboard and holds). |
+| Native `kimi`, `glm-claude`, tmux and Orca surfaces | Not present (Kimi only as an OpenCode model; no terminal adapters). |
+
+Decision: **build hiraishin**. aid is a large (≈190k lines Rust) general dispatcher whose core model (advice, price, cascade on failure) differs from ours (perishable quota, user gates, limit-specific failover with a resume prompt). Ideas worth borrowing: salvage summary of dirty state and inheriting the worktree on cascade. hiraishin keeps the dirty files uncommitted ([ADR 0004](adr/0004-worktree-as-checkpoint.md)) and puts the state in the resume prompt instead.
+
 ### 3. `hydra` and `tasuki` — PTY Output Failover Pattern
 
 - **Repositories:** [saadnvd1/hydra](https://github.com/saadnvd1/hydra) (Go, MIT), [0xkohe/tasuki](https://github.com/0xkohe/tasuki) (Go, MIT).

@@ -5,8 +5,8 @@ Each milestone ships as a self-contained static Go binary ([ADR 0002](adr/0002-g
 ## Pre-v0.1 Gate (1-Hour Spike)
 
 Before writing production code:
-- [ ] Run [`agent-tools-org/ai-dispatch`](https://github.com/agent-tools-org/ai-dispatch) hands-on for 1 hour on a scratch repo to verify whether its fallback preserves uncommitted git worktrees and resumes across providers, and confirm the build-our-own vs. contribute decision.
-- [ ] Finalize project name ([naming.md](naming.md) recommendation: `hiraishin`) and license (`MIT` vs. `Apache-2.0`).
+- [x] Run [`agent-tools-org/ai-dispatch`](https://github.com/agent-tools-org/ai-dispatch) hands-on for 1 hour on a scratch repo to verify whether its fallback preserves uncommitted git worktrees and resumes across providers, and confirm the build-our-own vs. contribute decision.
+- [x] Finalize project name ([naming.md](naming.md) recommendation: `hiraishin`) and license (`MIT` vs. `Apache-2.0`).
 - [ ] Capture live redacted fixtures for `kimi` (native CLI), `api.z.ai` (`glm-claude` + OpenCode), and `claude -p --output-format stream-json` limit errors.
 
 ---
