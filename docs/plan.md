@@ -83,19 +83,34 @@ Go single static binary (concurrent watchers, user's stack), pure-Go SQLite, TOM
 - qmd: collections for briefs, reports and plans; a resumed agent gets its context in one query.
 - graphify: size a task (files touched, centrality) to choose the quality tier; give a resumed agent a small graph context.
 
+## Documentation Index
+
+- [README](../README.md): overview, perishable-quota concept, 20-line intended CLI quickstart, principles, design-phase status.
+- [Architecture](architecture.md): components, SQLite event-ledger schema, event types, provider & job state machines, and Mermaid sequence diagrams (dispatch, mid-job exhaustion, reset).
+- [User Preferences & Scoring](preferences.md): full commented TOML schema, 3 complete example configs, scoring formula, bounded learning & freeze, `why` output format, and runtime commands.
+- [Providers & Harnesses](providers/README.md): per-provider specifications (`claude-code`, `kimi` native + OpenCode, `glm` native/Claude-compatible + OpenCode, `antigravity-agy`, `codex`, `gemini-cli`) with launch/resume flags, windows, usage sensing, exact error fixtures, ToS quotes/URLs, and open risks.
+- [Optional Stack Integrations](integrations.md): concrete adapter interfaces and absent-tool fallbacks for `ai-memory`, `qmd`, and `graphify`.
+- [Prior Art Survey](prior-art.md): expanded feature matrix and reuse analysis (including `quota-axi` MIT license and CLI/library surface).
+- [Architecture Decision Records](adr/README.md): Nygard-style ADRs (`0001` no proxy, `0002` Go single binary, `0003` SQLite event ledger, `0004` worktree as checkpoint, `0005` user preferences over learned scores, `0006` local only).
+- [Blog Series Outlines](blog/README.md): outlines `01`–`06` with hooks, sections, figures/data, and real 2026-11-21 `mmorpg` case numbers.
+- [Naming Shortlist](naming.md): anime/manga candidates, metaphors, GitHub/npm/crates/domain availability checks, and recommendation (`hiraishin`).
+- [Roadmap](roadmap.md): v0.1 / v0.2 / v0.3 milestones and acceptance criteria.
+
 ## Naming
 
-The user likes anime/manga references. Shortlist in docs/naming.md (hiraishin, kagebunshin, kuchiyose, toukakoukan, ...).
+The user likes anime/manga references. Shortlist and availability checks in [docs/naming.md](naming.md) (recommended: `hiraishin`, with `byakugan` as an optional sensor-dashboard name).
 
 ## Open questions
 
-- Name (search GitHub and npm before fixing).
+- Final project name confirmation (`hiraishin` recommended in [docs/naming.md](naming.md); verify registrar availability before claiming).
 - Licence: MIT or Apache-2.0.
 - Public from the first commit or private until v0.1.
-- Terms of service of each provider on scripted use of its official CLI: read and document before v0.1.
-- Kimi and Z.AI usage endpoints: quota-axi and quotamux read them (quotamux says two are undocumented); check stability and terms.
+- Pre-v0.1 verification of verbatim Terms of Service quotes for Moonshot/Kimi, Z.AI Coding Plan, Google Antigravity, and Gemini Code Assist (marked `[unverified]` in [docs/providers/README.md](providers/README.md)).
+- Live fixture capture for native `kimi`, `api.z.ai` error JSON, `codex exec --json`, and `gemini --output-format stream-json`.
+- 1-hour hands-on test of `agent-tools-org/ai-dispatch` before starting v0.1 implementation ([docs/prior-art.md](prior-art.md)).
 
 ## Log
 
-- 2026-11-21: added native Kimi/GLM harnesses, ai-memory/qmd/graphify integrations and anime naming; docs front aq-docs started (Neon high, documentation only).
+- 2026-11-21: completed full design documentation pack (README, architecture, preferences, 6 provider specs, integrations, prior art, ADRs 0001–0006, 6 blog outlines, naming shortlist, roadmap) and linked every document from `plan.md`.
+- 2026-11-21: added native Kimi/GLM harnesses, ai-memory/qmd/graphify integrations and anime naming; docs front aq-docs started (documentation only).
 - 2026-11-21: survey of prior art; design and preference model drafted.
