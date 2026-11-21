@@ -2,41 +2,48 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/spf13/cobra"
+
 	"github.com/KurobaneShin/hiraishin/internal/config"
 	"github.com/KurobaneShin/hiraishin/internal/inventory"
 )
 
-func runInit(_ context.Context, a *app, args []string) error {
-	fs := newFlags("init")
-	yes := fs.Bool("yes", false, "accept detected defaults without prompting")
-	force := fs.Bool("force", false, "overwrite an existing preferences.toml")
-	adapter := fs.String("adapter", "process", "default terminal adapter: process, tmux or orca")
-	if err := parse(fs, args); err != nil {
-		return err
+func initCmd(a *app) *cobra.Command {
+	var yes, force bool
+	var adapter string
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Detect installed CLIs and write preferences.toml",
+		Args:  args(0, ""),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			found, err := inventory.Detect(inventory.System{LookPath: a.env.LookPath, ReadFile: a.env.ReadFile, Getenv: a.env.Getenv})
+			if err != nil {
+				return fmt.Errorf("detect CLIs: %w", err)
+			}
+			if len(found) == 0 {
+				return fmt.Errorf("none of claude, kimi, opencode, agy found on PATH")
+			}
+			if !yes && a.env.Interactive {
+				if found, err = confirm(a, found); err != nil {
+					return err
+				}
+			}
+			cfg := inventory.Build(found, adapter)
+			if err := config.Write(a.paths.Config, cfg, force); err != nil {
+				return err
+			}
+			return printInit(a, cfg)
+		},
 	}
-	found, err := inventory.Detect(inventory.System{LookPath: a.env.LookPath, ReadFile: a.env.ReadFile, Getenv: a.env.Getenv})
-	if err != nil {
-		return fmt.Errorf("detect CLIs: %w", err)
-	}
-	if len(found) == 0 {
-		return fmt.Errorf("none of claude, kimi, opencode, agy found on PATH")
-	}
-	if !*yes && a.env.Interactive {
-		if found, err = confirm(a, found); err != nil {
-			return err
-		}
-	}
-	cfg := inventory.Build(found, *adapter)
-	if err := config.Write(a.paths.Config, cfg, *force); err != nil {
-		return err
-	}
-	return printInit(a, cfg)
+	cmd.Flags().BoolVar(&yes, "yes", false, "accept detected defaults without prompting")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing preferences.toml")
+	cmd.Flags().StringVar(&adapter, "adapter", "process", "default terminal adapter: process, tmux or orca")
+	return cmd
 }
 
 type prompter struct {
@@ -62,7 +69,7 @@ func (p prompter) askInt(q string, def int) (int, error) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 1 || n > 99 {
-		return 0, usageError{msg: fmt.Sprintf("%s: %q is not a positive number", q, s)}
+		return 0, usageError{msg: fmt.Sprintf("%s: %q is not a positive number", strings.TrimSpace(q), s)}
 	}
 	return n, nil
 }

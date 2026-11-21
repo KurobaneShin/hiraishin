@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/KurobaneShin/hiraishin/internal/config"
+	"github.com/KurobaneShin/hiraishin/internal/engine"
 )
 
 type Env struct {
@@ -28,74 +31,83 @@ type app struct {
 	paths config.Paths
 }
 
-type command struct {
-	name    string
-	summary string
-	run     func(ctx context.Context, a *app, args []string) error
-}
-
 type usageError struct{ msg string }
 
 func (e usageError) Error() string { return e.msg }
 
-func commands() []command {
-	return []command{
-		{"init", "Detect installed CLIs and write preferences.toml", runInit},
-		{"version", "Print the build version", runVersion},
-	}
-}
-
-func usage() string {
-	var b strings.Builder
-	b.WriteString("hiraishin: coding-agent quota scheduler and failover orchestrator\n\nUsage:\n  hiraishin <command> [flags]\n\nCommands:\n")
-	for _, c := range commands() {
-		fmt.Fprintf(&b, "  %-9s %s\n", c.name, c.summary)
-	}
-	return b.String()
-}
-
-func find(name string) (command, bool) {
-	for _, c := range commands() {
-		if c.name == name {
-			return c, true
-		}
-	}
-	return command{}, false
-}
+const (
+	ExitOK    = 0
+	ExitError = 1
+	ExitUsage = 2
+)
 
 func Run(ctx context.Context, args []string, env Env) int {
-	if len(args) == 0 {
-		_, _ = fmt.Fprint(env.Stderr, usage())
-		return 2
-	}
-	switch args[0] {
-	case "help", "-h", "--help":
-		_, _ = fmt.Fprint(env.Stdout, usage())
-		return 0
-	case "--version":
-		args[0] = "version"
-	}
-	cmd, ok := find(args[0])
-	if !ok {
-		_, _ = fmt.Fprintf(env.Stderr, "hiraishin: unknown command %q\n\n%s", args[0], usage())
-		return 2
+	if env.Now == nil {
+		env.Now = time.Now
 	}
 	a := &app{env: env, paths: config.ResolvePaths(env.Getenv)}
-	if err := cmd.run(ctx, a, args[1:]); err != nil {
-		_, _ = fmt.Fprintf(env.Stderr, "hiraishin %s: %v\n", args[0], err)
-		if _, ok := errors.AsType[usageError](err); ok {
-			return 2
-		}
-		return 1
+	root := newRoot(a)
+	root.SetArgs(args)
+	root.SetIn(env.Stdin)
+	root.SetOut(env.Stdout)
+	root.SetErr(env.Stderr)
+	err := root.ExecuteContext(ctx)
+	if err == nil {
+		return ExitOK
 	}
-	return 0
+	_, _ = fmt.Fprintf(env.Stderr, "hiraishin: %v\n", err)
+	if _, ok := errors.AsType[usageError](err); ok || strings.HasPrefix(err.Error(), "unknown command") {
+		return ExitUsage
+	}
+	return ExitError
 }
 
-func runVersion(_ context.Context, a *app, _ []string) error {
-	v := "(devel)"
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
-		v = info.Main.Version
+func newRoot(a *app) *cobra.Command {
+	root := &cobra.Command{
+		Use:           "hiraishin",
+		Short:         "Coding-agent quota scheduler and failover orchestrator",
+		Version:       version(),
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
-	_, err := fmt.Fprintln(a.env.Stdout, "hiraishin", v)
-	return err
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{msg: err.Error()} })
+	root.AddCommand(
+		initCmd(a), statusCmd(a), whyCmd(a),
+		profileCmd(a), preferCmd(a), pinCmd(a), unpinCmd(a),
+		providerStateCmd(a, "pause"), providerStateCmd(a, "drain"), providerStateCmd(a, "resume"),
+		versionCmd(),
+	)
+	return root
+}
+
+func args(n int, names string) cobra.PositionalArgs {
+	return func(_ *cobra.Command, got []string) error {
+		if len(got) != n {
+			return usageError{msg: fmt.Sprintf("want %d argument(s): %s", n, names)}
+		}
+		return nil
+	}
+}
+
+func (a *app) open(ctx context.Context) (*engine.Engine, error) {
+	return engine.Open(ctx, a.paths, a.env.Now)
+}
+
+func versionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the build version",
+		Args:  args(0, ""),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "hiraishin", version())
+			return err
+		},
+	}
+}
+
+func version() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "(devel)"
 }

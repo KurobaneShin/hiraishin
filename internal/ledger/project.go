@@ -176,8 +176,17 @@ func (t *Tx) project(ctx context.Context, ev *Event) error {
 }
 
 func (t *Tx) projectDecision(ctx context.Context, ev *Event, p DecisionMade, ts string) error {
-	if err := t.exec(ctx, `INSERT INTO decisions(decision_id, job_id, trigger, profile, chosen_provider, candidates_json, summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.DecisionID, ev.JobID, p.Trigger, p.Profile, nullString(p.ChosenProvider), string(p.Candidates), p.Summary, ts); err != nil {
+	blocked, err := json.Marshal(p.BlockedProviders)
+	if err != nil {
+		return err
+	}
+	weights := string(p.Weights)
+	if weights == "" {
+		weights = "{}"
+	}
+	if err := t.exec(ctx, `INSERT INTO decisions(decision_id, job_id, trigger, profile, chosen_provider, role, min_quality_tier, weights_json, candidates_json, summary, earliest_reset_at, blocked_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.DecisionID, ev.JobID, p.Trigger, p.Profile, nullString(p.ChosenProvider), p.Role, p.MinQualityTier, weights, string(p.Candidates), p.Summary, nullTime(p.EarliestResetAt), string(blocked), ts); err != nil {
 		return err
 	}
 	if p.ChosenProvider == "" || p.Trigger == "dry_run" {

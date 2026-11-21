@@ -64,8 +64,13 @@ CREATE TABLE decisions (
     trigger         TEXT NOT NULL,
     profile         TEXT NOT NULL,
     chosen_provider TEXT,
+    role            TEXT NOT NULL,
+    min_quality_tier INTEGER NOT NULL,
+    weights_json    TEXT NOT NULL,
     candidates_json TEXT NOT NULL,
     summary         TEXT NOT NULL,
+    earliest_reset_at TEXT,
+    blocked_json    TEXT NOT NULL,
     created_at      TEXT NOT NULL
 );
 CREATE INDEX idx_decisions_job_created ON decisions(job_id, created_at);

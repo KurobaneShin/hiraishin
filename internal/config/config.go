@@ -34,10 +34,10 @@ type General struct {
 }
 
 type Weights struct {
-	Quality  float64 `toml:"quality"`
-	Expiry   float64 `toml:"expiry"`
-	Scarcity float64 `toml:"scarcity"`
-	Latency  float64 `toml:"latency"`
+	Quality  float64 `toml:"quality" json:"quality"`
+	Expiry   float64 `toml:"expiry" json:"expiry"`
+	Scarcity float64 `toml:"scarcity" json:"scarcity"`
+	Latency  float64 `toml:"latency" json:"latency"`
 }
 
 type Learning struct {

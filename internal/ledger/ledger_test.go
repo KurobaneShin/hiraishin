@@ -108,7 +108,7 @@ func queue(t *testing.T, l *Ledger, job string) {
 func decide(t *testing.T, l *Ledger, job, providerID string) string {
 	t.Helper()
 	id := NewID("dec")
-	mustAppend(t, l, Event{JobID: job, Source: SourceScheduler, Payload: DecisionMade{DecisionID: id, Trigger: "initial_dispatch", Profile: "balanced", ChosenProvider: providerID, Candidates: json.RawMessage("[]"), Summary: "s"}})
+	mustAppend(t, l, Event{JobID: job, Source: SourceScheduler, Payload: DecisionMade{DecisionID: id, Trigger: "initial_dispatch", Profile: "balanced", ChosenProvider: providerID, Role: "default", Candidates: json.RawMessage("[]"), Summary: "s"}})
 	return id
 }
 

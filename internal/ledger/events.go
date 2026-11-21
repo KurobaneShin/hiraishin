@@ -134,12 +134,17 @@ type PreferCleared struct {
 }
 
 type DecisionMade struct {
-	DecisionID     string          `json:"decision_id"`
-	Trigger        string          `json:"trigger"`
-	Profile        string          `json:"profile"`
-	ChosenProvider string          `json:"chosen_provider"`
-	Candidates     json.RawMessage `json:"candidates"`
-	Summary        string          `json:"summary"`
+	DecisionID       string          `json:"decision_id"`
+	Trigger          string          `json:"trigger"`
+	Profile          string          `json:"profile"`
+	ChosenProvider   string          `json:"chosen_provider"`
+	Role             string          `json:"role"`
+	MinQualityTier   int             `json:"min_quality_tier"`
+	Weights          json.RawMessage `json:"weights"`
+	Candidates       json.RawMessage `json:"candidates"`
+	Summary          string          `json:"summary"`
+	EarliestResetAt  time.Time       `json:"earliest_reset_at,omitzero"`
+	BlockedProviders []string        `json:"blocked_providers"`
 }
 
 type JobQueued struct {

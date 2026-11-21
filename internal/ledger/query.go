@@ -51,14 +51,19 @@ type JobRow struct {
 }
 
 type DecisionRow struct {
-	ID             string
-	JobID          string
-	Trigger        string
-	Profile        string
-	ChosenProvider string
-	CandidatesJSON string
-	Summary        string
-	CreatedAt      time.Time
+	ID              string
+	JobID           string
+	Trigger         string
+	Profile         string
+	ChosenProvider  string
+	Role            string
+	MinQualityTier  int
+	WeightsJSON     string
+	CandidatesJSON  string
+	Summary         string
+	EarliestResetAt time.Time
+	BlockedJSON     string
+	CreatedAt       time.Time
 }
 
 type AttemptRow struct {
@@ -200,15 +205,15 @@ func (t *Tx) Jobs(ctx context.Context, states ...string) ([]JobRow, error) {
 	return out, rows.Err()
 }
 
-const decisionColumns = `decision_id, job_id, trigger, profile, chosen_provider, candidates_json, summary, created_at`
+const decisionColumns = `decision_id, job_id, trigger, profile, chosen_provider, role, min_quality_tier, weights_json, candidates_json, summary, earliest_reset_at, blocked_json, created_at`
 
 func scanDecision(s interface{ Scan(...any) error }) (DecisionRow, error) {
 	var d DecisionRow
-	var chosen, created sql.NullString
-	if err := s.Scan(&d.ID, &d.JobID, &d.Trigger, &d.Profile, &chosen, &d.CandidatesJSON, &d.Summary, &created); err != nil {
+	var chosen, earliest, created sql.NullString
+	if err := s.Scan(&d.ID, &d.JobID, &d.Trigger, &d.Profile, &chosen, &d.Role, &d.MinQualityTier, &d.WeightsJSON, &d.CandidatesJSON, &d.Summary, &earliest, &d.BlockedJSON, &created); err != nil {
 		return DecisionRow{}, err
 	}
-	d.ChosenProvider, d.CreatedAt = chosen.String, parseTime(created)
+	d.ChosenProvider, d.EarliestResetAt, d.CreatedAt = chosen.String, parseTime(earliest), parseTime(created)
 	return d, nil
 }
 

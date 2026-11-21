@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KurobaneShin/hiraishin/docs/schemas/status.schema.json",
+  "title": "hiraishin status --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "profile",
+    "providers",
+    "jobs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "jobs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "harness",
+          "state",
+          "active_jobs",
+          "max_concurrent",
+          "windows"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "AVAILABLE",
+              "DEGRADED",
+              "DRAINING",
+              "PAUSED",
+              "EXHAUSTED",
+              "AUTH_ERROR",
+              "UNAVAILABLE",
+              "DISABLED"
+            ]
+          },
+          "active_jobs": {
+            "type": "integer"
+          },
+          "max_concurrent": {
+            "type": "integer"
+          },
+          "cooldown_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "kind",
+                "used_pct",
+                "resets_in_seconds",
+                "confidence"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "used_pct": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "resets_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "resets_in_seconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "confidence": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
