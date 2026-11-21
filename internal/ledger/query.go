@@ -251,6 +251,41 @@ func (t *Tx) Attempts(ctx context.Context, jobID string) ([]AttemptRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query attempts: %w", err)
 	}
+	return scanAttempts(rows)
+}
+
+func (t *Tx) LatestAttempts(ctx context.Context, states ...string) (map[string]AttemptRow, error) {
+	args := make([]any, len(states))
+	for i, s := range states {
+		args[i] = s
+	}
+	rows, err := t.q.QueryContext(ctx, `SELECT a.attempt_id, a.job_id, a.attempt_num, a.provider_id, a.decision_id, a.attempt_dir, a.start_commit, a.end_commit, a.exit_reason, a.started_at, a.ended_at
+		FROM jobs j JOIN job_attempts a ON a.job_id = j.job_id
+		WHERE j.state IN (`+strings.TrimSuffix(strings.Repeat("?,", len(states)), ",")+`)
+		AND a.attempt_num = (SELECT MAX(b.attempt_num) FROM job_attempts b WHERE b.job_id = j.job_id)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query latest attempts: %w", err)
+	}
+	list, err := scanAttempts(rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]AttemptRow, len(list))
+	for _, a := range list {
+		out[a.JobID] = a
+	}
+	return out, nil
+}
+
+func (t *Tx) LastSeq(ctx context.Context) (int64, error) {
+	var seq int64
+	if err := t.q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events`).Scan(&seq); err != nil {
+		return 0, fmt.Errorf("last event seq: %w", err)
+	}
+	return seq, nil
+}
+
+func scanAttempts(rows *sql.Rows) ([]AttemptRow, error) {
 	defer func() { _ = rows.Close() }()
 	var out []AttemptRow
 	for rows.Next() {

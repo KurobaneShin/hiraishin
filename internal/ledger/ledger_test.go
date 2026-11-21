@@ -237,3 +237,35 @@ func TestPrefersExpire(t *testing.T) {
 		t.Fatalf("expired prefers = %v, %v", got, err)
 	}
 }
+
+func TestLatestAttemptsOnePerJobAndLastSeq(t *testing.T) {
+	l, _ := open(t)
+	configure(t, l, "kimi", "agy")
+	ctx := context.Background()
+	if seq, err := l.Reader().LastSeq(ctx); err != nil || seq == 0 {
+		t.Fatalf("seq = %d %v", seq, err)
+	}
+	queue(t, l, "job_a")
+	a1 := dispatch(t, l, "job_a", "kimi", decide(t, l, "job_a", "kimi"), 1)
+	mustAppend(t, l, Event{JobID: "job_a", ProviderID: "kimi", Source: SourceWatcher, Payload: FailoverStarted{AttemptID: a1, FromProvider: "kimi", ExitReason: "limit_hit"}})
+	a2 := dispatch(t, l, "job_a", "agy", decide(t, l, "job_a", "agy"), 2)
+	queue(t, l, "job_b")
+	b1 := dispatch(t, l, "job_b", "agy", decide(t, l, "job_b", "agy"), 1)
+	mustAppend(t, l, Event{JobID: "job_b", ProviderID: "agy", Source: SourceWatcher, Payload: JobCompleted{AttemptID: b1}})
+	before, _ := l.Reader().LastSeq(ctx)
+	got, err := l.Reader().LatestAttempts(ctx, JobRunningState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got["job_a"].ID != a2 || got["job_a"].Num != 2 {
+		t.Fatalf("running latest = %+v", got)
+	}
+	all, _ := l.Reader().LatestAttempts(ctx, JobRunningState, JobCompletedState)
+	if len(all) != 2 || all["job_b"].ID != b1 {
+		t.Fatalf("latest = %+v", all)
+	}
+	queue(t, l, "job_c")
+	if after, _ := l.Reader().LastSeq(ctx); after != before+1 {
+		t.Errorf("seq %d -> %d", before, after)
+	}
+}

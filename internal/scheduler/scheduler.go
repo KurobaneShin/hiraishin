@@ -135,8 +135,9 @@ func Select(req Request) (Decision, error) {
 		Candidates: []Candidate{}, BlockedProviders: []string{},
 	}
 	pin := cmp.Or(req.Job.PinnedProvider, role.PinProvider)
-	for _, p := range orderProviders(req.Providers, role.AllowedProviders) {
-		c := evaluate(req, role, roleName, pin, weights, p)
+	l := newLookup(req, role, roleName)
+	for _, p := range orderProviders(req.Providers, l.rank) {
+		c := evaluate(req, role, roleName, pin, weights, p, l)
 		d.Candidates = append(d.Candidates, c)
 	}
 	best := -1
@@ -152,18 +153,48 @@ func Select(req Request) (Decision, error) {
 		d.Candidates[best].Status = StatusSelected
 		d.ChosenProvider = d.Candidates[best].Provider
 	} else {
-		d.EarliestResetAt, d.BlockedProviders = blocked(req, role)
+		d.EarliestResetAt, d.BlockedProviders = blocked(req, l)
 	}
 	d.Summary = summarize(d)
 	return d, nil
 }
 
-func orderProviders(all []Provider, allowed []string) []Provider {
+type lookup struct {
+	rank    map[string]int
+	deny    map[string]bool
+	exclude map[string]bool
+	prefer  map[string]bool
+}
+
+func set(ids []string) map[string]bool {
+	m := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		m[id] = true
+	}
+	return m
+}
+
+func newLookup(req Request, role config.Role, roleName string) lookup {
+	l := lookup{rank: make(map[string]int, len(role.AllowedProviders)), deny: set(role.DenyProviders), exclude: set(req.Job.Exclude), prefer: map[string]bool{}}
+	for i, id := range role.AllowedProviders {
+		if _, dup := l.rank[id]; !dup {
+			l.rank[id] = i
+		}
+	}
+	for _, pr := range req.Prefers {
+		if pr.Role == "" || pr.Role == roleName {
+			l.prefer[pr.ProviderID] = true
+		}
+	}
+	return l
+}
+
+func orderProviders(all []Provider, ranks map[string]int) []Provider {
 	rank := func(id string) int {
-		if i := slices.Index(allowed, id); i >= 0 {
+		if i, ok := ranks[id]; ok {
 			return i
 		}
-		return len(allowed)
+		return len(ranks)
 	}
 	out := slices.Clone(all)
 	slices.SortStableFunc(out, func(a, b Provider) int {
@@ -188,7 +219,7 @@ func EffectiveState(p Provider, warnPct float64, now time.Time) string {
 	return p.State
 }
 
-func evaluate(req Request, role config.Role, roleName, pin string, w config.Weights, p Provider) Candidate {
+func evaluate(req Request, role config.Role, roleName, pin string, w config.Weights, p Provider, l lookup) Candidate {
 	cfg := req.Config
 	state := EffectiveState(p, cfg.General.WarnUsedPct, req.Now)
 	c := Candidate{Provider: p.ID, State: state, Rejections: []string{}, Windows: p.Windows, ActiveJobs: p.ActiveJobs, MaxConcurrent: p.Config.MaxConcurrent}
@@ -208,10 +239,11 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 	if pin != "" && pin != p.ID {
 		reject("job pinned to %s", pin)
 	}
-	if !slices.Contains(role.AllowedProviders, p.ID) {
+	rank, allowed := l.rank[p.ID]
+	if !allowed {
 		reject("not in roles.%s.allowed_providers", roleName)
 	}
-	if slices.Contains(role.DenyProviders, p.ID) {
+	if l.deny[p.ID] {
 		reject("in roles.%s.deny_providers", roleName)
 	}
 	if p.Config.QualityTier < role.MinQualityTier {
@@ -229,7 +261,7 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 			reject("window %s %.1f%% used >= reserve %.1f%%", win.Name, *win.UsedPct, limit)
 		}
 	}
-	if slices.Contains(req.Job.Exclude, p.ID) {
+	if l.exclude[p.ID] {
 		reject("excluded for this %s", req.Trigger)
 	}
 	if len(c.Rejections) > 0 {
@@ -240,13 +272,9 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 	f, neutral := features(p, req.Now)
 	c.Features, c.ExpiryNeutral = &f, neutral
 	c.Weighted = &Features{Quality: w.Quality * f.Quality, Expiry: w.Expiry * f.Expiry, Scarcity: w.Scarcity * f.Scarcity, Latency: w.Latency * f.Latency}
-	if i := slices.Index(role.AllowedProviders, p.ID); i >= 0 {
-		c.OrderBonus = OrderBonusMax * (1 - float64(i)/float64(max(1, len(role.AllowedProviders)-1)))
-	}
-	for _, pr := range req.Prefers {
-		if pr.ProviderID == p.ID && (pr.Role == "" || pr.Role == roleName) {
-			c.PreferBonus = PreferBonus
-		}
+	c.OrderBonus = OrderBonusMax * (1 - float64(rank)/float64(max(1, len(role.AllowedProviders)-1)))
+	if l.prefer[p.ID] {
+		c.PreferBonus = PreferBonus
 	}
 	if state == ledger.StateDegraded {
 		c.DegradedPenalty = DegradedPenalty
@@ -303,11 +331,11 @@ func exhaustedDetail(p Provider, now time.Time) string {
 
 func clock(t time.Time) string { return t.UTC().Format("15:04 UTC") }
 
-func blocked(req Request, role config.Role) (time.Time, []string) {
+func blocked(req Request, l lookup) (time.Time, []string) {
 	var earliest time.Time
 	ids := []string{}
 	for _, p := range req.Providers {
-		if !slices.Contains(role.AllowedProviders, p.ID) {
+		if _, ok := l.rank[p.ID]; !ok {
 			continue
 		}
 		ids = append(ids, p.ID)

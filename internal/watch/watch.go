@@ -33,6 +33,7 @@ type Watcher struct {
 	tracker *sensor.Tracker
 	guard   *sensor.Guard
 	tails   map[string]*tail
+	seenSeq int64
 }
 
 type tail struct {
@@ -74,21 +75,41 @@ func (w *Watcher) Tick(ctx context.Context) (int, error) {
 	if err := w.poll(ctx); err != nil {
 		return 0, err
 	}
-	running, err := e.Ledger.Reader().Jobs(ctx, ledger.JobRunningState)
+	r := e.Ledger.Reader()
+	running, err := r.Jobs(ctx, ledger.JobRunningState)
+	if err != nil {
+		return 0, err
+	}
+	latest, err := r.LatestAttempts(ctx, ledger.JobRunningState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState, ledger.JobQueuedState)
 	if err != nil {
 		return 0, err
 	}
 	for _, job := range running {
-		if err := w.check(ctx, job); err != nil {
-			return 0, fmt.Errorf("job %s: %w", job.ID, err)
+		if att, ok := latest[job.ID]; ok && att.EndedAt.IsZero() {
+			if err := w.check(ctx, job, att); err != nil {
+				return 0, fmt.Errorf("job %s: %w", job.ID, err)
+			}
 		}
 	}
-	pending, err := e.Ledger.Reader().Jobs(ctx, ledger.JobFailingOverState, ledger.JobWaitingQuotaState, ledger.JobQueuedState)
+	pending, err := r.Jobs(ctx, ledger.JobFailingOverState, ledger.JobWaitingQuotaState, ledger.JobQueuedState)
 	if err != nil {
 		return 0, err
 	}
+	seq, err := r.LastSeq(ctx)
+	if err != nil {
+		return 0, err
+	}
+	ledgerChanged := seq != w.seenSeq
+	w.seenSeq = seq
 	for _, job := range pending {
-		if err := w.reschedule(ctx, job); err != nil {
+		if job.State == ledger.JobWaitingQuotaState && !ledgerChanged {
+			continue
+		}
+		var att *ledger.AttemptRow
+		if a, ok := latest[job.ID]; ok {
+			att = &a
+		}
+		if err := w.reschedule(ctx, job, att); err != nil {
 			return 0, fmt.Errorf("job %s: %w", job.ID, err)
 		}
 	}
@@ -96,25 +117,13 @@ func (w *Watcher) Tick(ctx context.Context) (int, error) {
 	return len(active), err
 }
 
-func lastAttempt(ctx context.Context, tx *ledger.Tx, jobID string) (*ledger.AttemptRow, error) {
-	attempts, err := tx.Attempts(ctx, jobID)
-	if err != nil || len(attempts) == 0 {
-		return nil, err
-	}
-	return &attempts[len(attempts)-1], nil
-}
-
-func (w *Watcher) check(ctx context.Context, job ledger.JobRow) error {
+func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.AttemptRow) error {
 	e := w.engine
-	att, err := lastAttempt(ctx, e.Ledger.Reader(), job.ID)
-	if err != nil || att == nil || !att.EndedAt.IsZero() {
-		return err
-	}
 	code, exited, err := dispatch.ExitCode(att.Dir)
 	if err != nil {
 		return err
 	}
-	lines, err := w.read(att, exited)
+	lines, err := w.read(&att, exited)
 	if err != nil {
 		return err
 	}
@@ -135,7 +144,7 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow) error {
 		if err := e.Ledger.Append(ctx, evs...); err != nil {
 			return err
 		}
-		return w.failover(ctx, job, *att, sig)
+		return w.failover(ctx, job, att, sig)
 	}
 	if !exited && (dispatch.Alive(att.Dir) || !started(att.Dir)) {
 		return e.Ledger.Append(ctx, evs...)
@@ -262,12 +271,8 @@ func (w *Watcher) failoverReason(ctx context.Context, jobID string, att *ledger.
 	return att.ExitReason, nil
 }
 
-func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow) error {
+func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger.AttemptRow) error {
 	e := w.engine
-	att, err := lastAttempt(ctx, e.Ledger.Reader(), job.ID)
-	if err != nil {
-		return err
-	}
 	trigger := map[string]string{ledger.JobFailingOverState: scheduler.TriggerFailover, ledger.JobWaitingQuotaState: scheduler.TriggerRetryAfterReset}[job.State]
 	trigger = cmp.Or(trigger, scheduler.TriggerInitial)
 	var exclude []string
@@ -279,7 +284,7 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow) error {
 		}
 	}
 	var d scheduler.Decision
-	err = e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
+	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
 		var dec ledger.Event
 		var err error
 		if d, dec, err = e.Decide(ctx, tx, job, trigger, exclude); err != nil {
