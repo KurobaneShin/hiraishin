@@ -43,7 +43,7 @@ func Build(p config.Provider, worktree string) (Command, error) {
 			c.EnvRef = append(c.EnvRef, [2]string{"ANTHROPIC_AUTH_TOKEN", p.APIKeyEnv})
 		}
 	case config.HarnessKimiNative:
-		c.Argv = []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json", "--auto"}
+		c.Argv = []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json"}
 		opt("--model", p.Model)
 	case config.HarnessOpenCode:
 		c.Argv = []string{"opencode", "run", "--format", "json", "--auto", "--dir", worktree}

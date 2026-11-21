@@ -29,7 +29,7 @@ func TestBuild(t *testing.T) {
 			want:    []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", "/wt"},
 			wantEnv: "ANTHROPIC_BASE_URL=" + GLMBaseURL, wantRef: "ANTHROPIC_AUTH_TOKEN=ZAI_API_KEY"},
 		{name: "kimi", p: config.Provider{Harness: config.HarnessKimiNative},
-			want: []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json", "--auto"}},
+			want: []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json"}},
 		{name: "opencode", p: config.Provider{Harness: config.HarnessOpenCode, HarnessAgent: "kimi-worker", Model: "p/m"},
 			want: []string{"opencode", "run", "--format", "json", "--auto", "--dir", "/wt", "--agent", "kimi-worker", "--model", "p/m", promptArg}},
 		{name: "agy with prefix", p: config.Provider{Harness: config.HarnessAgy, Model: "g", LaunchPrefix: []string{"flock", "~/.agy.lock"}},

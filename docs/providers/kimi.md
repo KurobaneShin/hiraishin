@@ -18,12 +18,13 @@ Documented for Moonshot's native Kimi Code CLI (`kimi`):
 - **Headless (single prompt):**
   ```bash
   kimi --prompt "<prompt>" \
-    --output-format stream-json \
-    --auto
+    --output-format stream-json
   ```
   - `--prompt`: runs a single task non-interactively instead of entering the TUI.
   - `--output-format`: `text` or `stream-json` (JSONL events for `hiraishin`'s Failover Watcher).
-  - Permission modes: `--yolo` (ask when needed) or `--auto` (never ask, for autonomous worktrees). `[unverified against a local kimi binary — binary not installed on this workstation on 2026-11-21; verify exact flag spelling when installing MoonshotAI/kimi-code]`.
+  - Permissions: `--prompt` already runs with auto approval. `--auto` and `--yolo` are rejected with it (`error: Cannot combine --prompt with --auto.`, exit 1; verified with `@moonshot-ai/kimi-code` 2.7.2 on 2026-11-21).
+  - Session id: the last `stream-json` line is `{"role":"meta","type":"session.resume_hint","session_id":"session_<uuid>",...}`. Fixture: `internal/sensor/testdata/fixtures/kimi/native_session.jsonl`.
+  - Auth without the TUI: `KIMI_MODEL_NAME=kimi-for-coding`, `KIMI_MODEL_BASE_URL=https://api.kimi.com/coding/v1` and `KIMI_MODEL_API_KEY=<Kimi Code key>` build an in-memory provider; `KIMI_API_KEY` alone is ignored. A persistent setup goes in `~/.kimi-code/config.toml` (`api_key_env` names the variable to read).
 - **Interactive:**
   ```bash
   kimi
@@ -33,7 +34,7 @@ Documented for Moonshot's native Kimi Code CLI (`kimi`):
 ### Resume Semantics (Native)
 
 - `kimi --continue`: resumes the most recent session in the current working directory.
-- `kimi --session <session-id>`: resumes a specific saved session ID (or opens an interactive picker when `<session-id>` is omitted).
+- `kimi --session <session-id>` (`-S`, hidden alias `-r`): resumes a specific saved session ID (or opens an interactive picker when `<session-id>` is omitted).
 
 ---
 
@@ -89,7 +90,7 @@ Subscription endpoints (used by Kimi Code CLI and OpenCode's `kimi-code-plan-cn`
    - **Caution:** `quotamux` notes that Kimi's usage endpoint is not formally versioned as a public third-party SLA API `[unverified schema stability across CN and global accounts]`.
 2. **Tier 2 — Local Harness Storage:**
    - When running via OpenCode: `opencode stats --days 1 --models` or read-only SQLite query against `~/.local/share/opencode/opencode.db` (note: this DB can grow multi-GB — 8.8 GB on this workstation — so `hiraishin` must use indexed timestamp queries or CLI stats, never full-table scans).
-   - Native Kimi CLI local session store path `[unverified — confirm once kimi binary is installed]`.
+   - Native Kimi CLI local session store: `~/.kimi-code/sessions/<workDirKey>/<sessionId>/` (`state.json`, `agents/main/wire.jsonl`), indexed by `~/.kimi-code/session_index.jsonl`; `KIMI_CODE_HOME` moves the root.
 3. **Tier 3 — Terminal Output Patterns:**
    - Watches stderr/PTY and `stream-json` / `opencode run --format json` events for HTTP 429 and 5-hour limit banners.
 
@@ -124,4 +125,4 @@ Key policy boundaries from Moonshot's platform documentation:
 1. **Undocumented usage endpoint drift:** `https://api.kimi.com/coding/v1/usages` may change JSON fields or require specific client headers (`User-Agent` / `Client-Version`) without notice.
 2. **CN vs. Global account differences:** The user's `opencode.json` uses `kimi-code-plan-cn/k3.1-pro`; `hiraishin` must allow configuring the base region (`cn` vs. `global`) for the sensor URL.
 3. **Rapid 5h exhaustion under parallel fronts:** On 2026-11-21, running 3 parallel Kimi fronts (`char-flow`, `persist-all`, `loot-drops`) exhausted the 5h window rapidly, forcing manual failover of all three to `agy`. Setting `max_concurrent = 2..3` and pairing with `burn-expiring-first` avoids simultaneous stalls.
-4. **Native CLI installation gap:** `kimi` is not yet installed on this workstation, so native `--output-format stream-json` field names must be captured as recorded fixtures before enabling the native adapter in v0.1.
+4. **Native CLI auth for unattended jobs:** `kimi` (`@moonshot-ai/kimi-code` 2.7.2) is installed and its `stream-json` output is recorded as a fixture, but a `kimi-native` job only authenticates once `~/.kimi-code/config.toml` (or the `KIMI_MODEL_*` variables) is set up; the launcher does not inject a key for it.
