@@ -126,7 +126,10 @@ api_key_env = ""
 # ~/.claude, and an inherited CLAUDE_CONFIG_DIR is unset. Give each account
 # its own provider and config_dir to fail over between accounts; two providers
 # on the same config_dir must share a shared_quota_pool.
-# `hiraishin init --claude-config-dir '<path or glob>'` adds one provider per dir.
+# `hiraishin init --claude-config-dir '<path or glob>'` adds one provider per
+# account; dirs whose .claude.json names an account already found are skipped.
+# The local-log sensor skips a config_dir whose projects/ is a symlink, since
+# those logs may belong to another account.
 config_dir = ""
 
 # Quota windows. Auto-detected when a sensor supports it; typed values act as

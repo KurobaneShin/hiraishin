@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -283,7 +285,11 @@ func (p *Probe) localLogs(f Family, prov config.Provider) ([]Sample, error) {
 		if prov.Harness != config.HarnessClaudeCode {
 			return nil, nil
 		}
-		n, err = ClaudeTokens(ClaudeDir(prov, p.Home), since)
+		dir := ClaudeDir(prov, p.Home)
+		if fi, err := os.Lstat(filepath.Join(dir, "projects")); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return nil, nil
+		}
+		n, err = ClaudeTokens(dir, since)
 	case FamilyAgy:
 		n, err = AgyTurns(p.Home, since)
 	default:

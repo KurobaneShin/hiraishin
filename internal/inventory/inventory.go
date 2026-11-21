@@ -90,6 +90,26 @@ func (sys System) isClaudeDir(dir string) bool {
 	return false
 }
 
+func (sys System) claudeAccountID(dir, def, home string) string {
+	state := filepath.Join(dir, ".claude.json")
+	if dir == def {
+		state = filepath.Join(home, ".claude.json")
+	}
+	raw, err := sys.ReadFile(state)
+	if err != nil {
+		return ""
+	}
+	var doc struct {
+		OAuthAccount struct {
+			AccountUUID string `json:"accountUuid"`
+		} `json:"oauthAccount"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return ""
+	}
+	return doc.OAuthAccount.AccountUUID
+}
+
 func claudeAccounts(sys System, patterns []string) ([]claudeAccount, error) {
 	home := sys.Getenv("HOME")
 	def := filepath.Join(home, ".claude")
@@ -113,6 +133,12 @@ func claudeAccounts(sys System, patterns []string) ([]claudeAccount, error) {
 			continue
 		}
 		seen[dir] = true
+		if acct := sys.claudeAccountID(dir, def, home); acct != "" {
+			if seen["account:"+acct] {
+				continue
+			}
+			seen["account:"+acct] = true
+		}
 		if dir == def {
 			out = append(out, claudeAccount{id: "claude", pool: "claude-max"})
 			ids["claude"] = true

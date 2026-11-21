@@ -95,6 +95,33 @@ func TestClaudeAccounts(t *testing.T) {
 	}
 }
 
+func TestSameAccountInTwoDirsIsDetectedOnce(t *testing.T) {
+	home := t.TempDir()
+	mkdir(t, home, ".claude", "projects")
+	write := func(path, uuid string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(`{"oauthAccount":{"accountUuid":"`+uuid+`","emailAddress":"x@example.invalid"}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(home, ".claude.json"), "acct-1")
+	same := mkdir(t, home, "profiles", "same0001", "home")
+	write(filepath.Join(same, ".claude.json"), "acct-1")
+	other := mkdir(t, home, "profiles", "other002", "home")
+	write(filepath.Join(other, ".claude.json"), "acct-2")
+	found, err := Detect(system(map[string]string{"HOME": home}), []string{"~/profiles/*/home"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, f := range found {
+		ids = append(ids, f.ID)
+	}
+	if len(ids) != 2 || ids[0] != "claude" || ids[1] != "claude-other002" {
+		t.Fatalf("ids = %v, want [claude claude-other002]", ids)
+	}
+}
+
 func TestClaudeLabelCollision(t *testing.T) {
 	home := t.TempDir()
 	x := mkdir(t, home, "a", "same", "home")

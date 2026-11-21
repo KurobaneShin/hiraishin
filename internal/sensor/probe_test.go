@@ -131,6 +131,22 @@ not json
 	if got := ClaudeDir(config.Provider{ConfigDir: "~/profiles/b"}, home); got != filepath.Join(home, "profiles", "b") {
 		t.Errorf("ClaudeDir = %q", got)
 	}
+	shared := filepath.Join(home, "profile-b")
+	if err := os.MkdirAll(shared, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, ".claude", "projects"), filepath.Join(shared, "projects")); err != nil {
+		t.Fatal(err)
+	}
+	p := &Probe{Home: home, Now: func() time.Time { return now }}
+	prov := config.Provider{Harness: config.HarnessClaudeCode, Sensor: config.Sensor{Mode: "local_logs"}, Windows: []config.Window{{Name: "5h", Kind: "rolling", DurationHours: 5}}}
+	if s, err := p.Sample(context.Background(), prov); err != nil || len(s) != 1 || *s[0].RawTokens != 160 {
+		t.Fatalf("default account sample = %+v %v", s, err)
+	}
+	prov.ConfigDir = shared
+	if s, err := p.Sample(context.Background(), prov); err != nil || s != nil {
+		t.Fatalf("symlinked projects must not be attributed to this account: %+v %v", s, err)
+	}
 	if n, err := ClaudeTokens(filepath.Join(home, "missing"), now); err != nil || n != 0 {
 		t.Fatalf("missing dir = %d, %v", n, err)
 	}
