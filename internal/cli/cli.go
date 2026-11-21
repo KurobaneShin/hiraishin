@@ -72,7 +72,7 @@ func newRoot(a *app) *cobra.Command {
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{msg: err.Error()} })
 	root.AddCommand(
-		initCmd(a), statusCmd(a), whyCmd(a),
+		initCmd(a), runCmd(a), cancelCmd(a), statusCmd(a), whyCmd(a),
 		profileCmd(a), preferCmd(a), pinCmd(a), unpinCmd(a),
 		providerStateCmd(a, "pause"), providerStateCmd(a, "drain"), providerStateCmd(a, "resume"),
 		versionCmd(),
