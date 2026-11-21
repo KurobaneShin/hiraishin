@@ -1,0 +1,2 @@
+Reading src/net/auth.go
+The API returns 401 for expired sessions and 429 when throttled; adding tests.
