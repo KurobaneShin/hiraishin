@@ -37,8 +37,9 @@ type Watcher struct {
 }
 
 type tail struct {
-	offset  int64
-	partial []byte
+	offset      int64
+	partial     []byte
+	sessionSeen bool
 }
 
 func New(e *engine.Engine, probe *sensor.Probe, log *slog.Logger, grace time.Duration) *Watcher {
@@ -130,7 +131,16 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 	prov := e.Cfg.Providers[att.ProviderID]
 	fam := sensor.FamilyOf(prov)
 	var evs []ledger.Event
+	t := w.tails[att.ID]
 	for _, line := range lines {
+		if !t.sessionSeen {
+			if id := sensor.SessionID(line); id != "" {
+				t.sessionSeen = true
+				if id != job.NativeSessionID {
+					evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.SessionDetected{NativeSessionID: id}})
+				}
+			}
+		}
 		now := e.Now()
 		sig, ok := sensor.Classify(fam, line, now)
 		if !ok {

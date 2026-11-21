@@ -1,6 +1,7 @@
 package sensor
 
 import (
+	"cmp"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -170,4 +171,19 @@ func excerpt(line string) string {
 		s = s[:maxExcerpt]
 	}
 	return s
+}
+
+func SessionID(line string) string {
+	if !strings.Contains(line, `"session_id"`) && !strings.Contains(line, `"sessionID"`) && !strings.Contains(line, `"conversation_id"`) {
+		return ""
+	}
+	var ev struct {
+		Snake        string `json:"session_id"`
+		Camel        string `json:"sessionID"`
+		Conversation string `json:"conversation_id"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(line)), &ev) != nil {
+		return ""
+	}
+	return cmp.Or(ev.Snake, ev.Camel, ev.Conversation)
 }

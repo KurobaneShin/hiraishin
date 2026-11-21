@@ -283,3 +283,24 @@ func TestNonZeroExitFailsJob(t *testing.T) {
 		t.Errorf("exit reason = %q", atts[0].ExitReason)
 	}
 }
+
+func TestSessionIDRecordedFromAgentOutput(t *testing.T) {
+	f := setup(t, map[string]string{"kimi": `echo '{"type":"system","subtype":"init","session_id":"sess-kimi-1"}'; echo '{"type":"result","session_id":"sess-kimi-1"}'`})
+	job := f.submit("default")
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	if got, _ := f.job(job.ID); got.NativeSessionID != "sess-kimi-1" {
+		t.Fatalf("native_session_id = %q", got.NativeSessionID)
+	}
+}
+
+func TestSessionIDFollowsFailover(t *testing.T) {
+	f := setup(t, map[string]string{
+		"kimi": "echo '{\"session_id\":\"sess-kimi\"}'\n" + kimiLimitOnce,
+		"agy":  `echo '{"type":"step_start","sessionID":"ses_agy"}'`,
+	})
+	job := f.submit("default")
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	if got, _ := f.job(job.ID); got.NativeSessionID != "ses_agy" {
+		t.Fatalf("native_session_id = %q", got.NativeSessionID)
+	}
+}

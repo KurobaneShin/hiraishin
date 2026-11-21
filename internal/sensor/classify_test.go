@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,6 +109,43 @@ func TestFamilyOf(t *testing.T) {
 	for _, tt := range tests {
 		if got := FamilyOf(tt.p); got != tt.want {
 			t.Errorf("FamilyOf(%+v) = %q, want %q", tt.p, got, tt.want)
+		}
+	}
+}
+
+func TestSessionID(t *testing.T) {
+	for line, want := range map[string]string{
+		`{"type":"system","subtype":"init","session_id":"0b5f-claude"}`: "0b5f-claude",
+		`{"type":"step_start","sessionID":"ses_opencode","part":{}}`:    "ses_opencode",
+		`  {"type":"assistant","session_id":"padded"}  `:                "padded",
+		`{"type":"text","part":{"text":"no session here"}}`:             "",
+		`plain stderr mentioning session_id`:                            "",
+		`{"session_id": broken json`:                                    "",
+	} {
+		if got := SessionID(line); got != want {
+			t.Errorf("SessionID(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
+
+func TestSessionIDFromRealOutput(t *testing.T) {
+	for fixture, want := range map[string]string{
+		"claude/stream_session.jsonl": "383189bb-beef-40f3-b5bc-ebc6e9bd40d8",
+		"agy/stream_session.jsonl":    "ec1ed19a-3184-4492-a5ea-e476872ad084",
+		"kimi/opencode_session.jsonl": "ses_dffacd84effeNAPzFe2haThJSy",
+	} {
+		b, err := os.ReadFile(filepath.Join("testdata", "fixtures", fixture))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := ""
+		for line := range strings.Lines(string(b)) {
+			if got = SessionID(line); got != "" {
+				break
+			}
+		}
+		if got != want {
+			t.Errorf("%s: session id = %q, want %q", fixture, got, want)
 		}
 	}
 }
