@@ -133,6 +133,8 @@ func TestSessionIDFromRealOutput(t *testing.T) {
 		"claude/stream_session.jsonl": "383189bb-beef-40f3-b5bc-ebc6e9bd40d8",
 		"agy/stream_session.jsonl":    "ec1ed19a-3184-4492-a5ea-e476872ad084",
 		"kimi/opencode_session.jsonl": "ses_dffacd84effeNAPzFe2haThJSy",
+		"kimi/native_session.jsonl":   "session_e83dce87-13ae-4e26-ac84-6217302c0e43",
+		"glm/claude_session.jsonl":    "27188b27-d2ef-458e-a60d-3c77fc5ce8cd",
 	} {
 		b, err := os.ReadFile(filepath.Join("testdata", "fixtures", fixture))
 		if err != nil {
