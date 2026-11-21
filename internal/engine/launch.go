@@ -9,6 +9,7 @@ import (
 
 	"github.com/KurobaneShin/hiraishin/internal/dispatch"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
+	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 )
 
 func (e *Engine) AttemptDir(jobID string, num int) string {
@@ -67,4 +68,26 @@ func (e *Engine) launch(ctx context.Context, job ledger.JobRow, decisionID, prov
 		AttemptID: ledger.NewID("att"), AttemptNum: num, DecisionID: decisionID, ProviderID: providerID,
 		TerminalAdapter: adapterName, TerminalHandle: handle, AttemptDir: dir, StartCommit: cp.Head,
 	}}, nil
+}
+
+func (e *Engine) Queue(ctx context.Context, job ledger.JobRow) (scheduler.Decision, error) {
+	var d scheduler.Decision
+	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
+		queued := ledger.Event{JobID: job.ID, Source: ledger.SourceCLI, Payload: ledger.JobQueued{
+			Name: job.Name, Role: job.Role, WorktreePath: job.WorktreePath, Branch: job.Branch, BriefPath: job.BriefPath,
+			ReportPath: job.ReportPath, TerminalAdapter: job.TerminalAdapter, PinnedProvider: job.PinnedProvider, NeverSwitch: job.NeverSwitch,
+		}}
+		var dec ledger.Event
+		var err error
+		d, dec, err = e.Decide(ctx, tx, job, scheduler.TriggerInitial, nil)
+		if err != nil {
+			return nil, err
+		}
+		evs := []ledger.Event{queued, dec}
+		if d.ChosenProvider == "" {
+			evs = append(evs, ledger.Event{JobID: job.ID, Source: ledger.SourceScheduler, Payload: ledger.WaitingQuota{EarliestResetAt: d.EarliestResetAt, BlockedProviders: d.BlockedProviders}})
+		}
+		return evs, nil
+	})
+	return d, err
 }

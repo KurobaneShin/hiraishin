@@ -30,7 +30,7 @@ func arg(s string) string {
 
 func Script(c Command, worktree, dir string) string {
 	in := func(name string) string { return quote(filepath.Join(dir, name)) }
-	lines := []string{"#!/usr/bin/env bash", "set -u", "cd " + quote(worktree) + " || exit 97", "ps -o pgid= -p $$ | tr -d ' ' > " + in(PgidFile)}
+	lines := []string{"#!/usr/bin/env bash", "set -u", "cd " + quote(worktree) + " || exit 97", "ps -o pgid= -p $$ | tr -d ' ' > " + in(PgidFile+".tmp") + " && mv " + in(PgidFile+".tmp") + " " + in(PgidFile)}
 	for _, kv := range c.Env {
 		lines = append(lines, "export "+kv[0]+"="+quote(kv[1]))
 	}

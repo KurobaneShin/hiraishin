@@ -2,7 +2,6 @@ package cli
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,9 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/KurobaneShin/hiraishin/internal/dispatch"
-	"github.com/KurobaneShin/hiraishin/internal/engine"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
-	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 )
 
 type runOpts struct {
@@ -90,7 +87,7 @@ func (a *app) run(cmd *cobra.Command, o runOpts) error {
 		WorktreePath: wt, Branch: cp.Branch, BriefPath: brief, ReportPath: report, TerminalAdapter: adapter,
 		PinnedProvider: o.provider, NeverSwitch: o.neverSwitch || o.provider != "" || role.NeverSwitchMidTask,
 	}
-	d, err := a.queue(ctx, e, job)
+	d, err := e.Queue(ctx, job)
 	if err != nil {
 		return err
 	}
@@ -113,28 +110,6 @@ func (a *app) run(cmd *cobra.Command, o runOpts) error {
 	disp := ev.Payload.(ledger.JobDispatched)
 	_, err = fmt.Fprintf(out, "Dispatched %s (%s) on %s via %s [%s]\n%s\nExplain: hiraishin why %s\n", job.ID, job.Name, d.ChosenProvider, adapter, disp.TerminalHandle, d.Summary, job.ID)
 	return err
-}
-
-func (a *app) queue(ctx context.Context, e *engine.Engine, job ledger.JobRow) (scheduler.Decision, error) {
-	var d scheduler.Decision
-	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
-		queued := ledger.Event{JobID: job.ID, Source: ledger.SourceCLI, Payload: ledger.JobQueued{
-			Name: job.Name, Role: job.Role, WorktreePath: job.WorktreePath, Branch: job.Branch, BriefPath: job.BriefPath,
-			ReportPath: job.ReportPath, TerminalAdapter: job.TerminalAdapter, PinnedProvider: job.PinnedProvider, NeverSwitch: job.NeverSwitch,
-		}}
-		var dec ledger.Event
-		var err error
-		d, dec, err = e.Decide(ctx, tx, job, scheduler.TriggerInitial, nil)
-		if err != nil {
-			return nil, err
-		}
-		evs := []ledger.Event{queued, dec}
-		if d.ChosenProvider == "" {
-			evs = append(evs, ledger.Event{JobID: job.ID, Source: ledger.SourceScheduler, Payload: ledger.WaitingQuota{EarliestResetAt: d.EarliestResetAt, BlockedProviders: d.BlockedProviders}})
-		}
-		return evs, nil
-	})
-	return d, err
 }
 
 func cancelCmd(a *app) *cobra.Command {
