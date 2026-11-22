@@ -22,7 +22,9 @@ const routingHelp = `How hiraishin decides which agent runs a job.
    Four factors, each from 0 to 1, multiplied by the active profile's weights:
      quality    quality_tier 1..5
      expiring   unused quota that resets soon, so it is spent before it is
-                lost: remaining share x (1 - time to reset / window length)
+                lost: remaining share x (1 - time to reset / window length),
+                from the shortest window whose usage and reset are known;
+                0.50 (neutral) when no window has both
      scarcity   how easy the quota is to replace: 60% from scarcity_tier,
                 40% from the unused weekly share
      speed      speed_tier 1..5

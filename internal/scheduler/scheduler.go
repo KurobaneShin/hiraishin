@@ -290,7 +290,7 @@ func features(p Provider, now time.Time) (Features, bool) {
 	}
 	f.Expiry, f.Scarcity = NeutralExpiry, 1-float64(p.Config.ScarcityTier-1)/4
 	neutral := true
-	if w, ok := shortest(p.Windows); ok && w.UsedPct != nil && !w.ResetsAt.IsZero() {
+	if w, ok := shortestMeasured(p.Windows); ok {
 		rem := (100 - *w.UsedPct) / 100
 		frac := clamp(w.ResetsAt.Sub(now).Hours()/w.DurationHours, minTimeFrac, 1)
 		f.Expiry, neutral = clamp(rem*(1-frac)*expiryGain, 0, 1), false
@@ -304,11 +304,11 @@ func features(p Provider, now time.Time) (Features, bool) {
 	return f, neutral
 }
 
-func shortest(ws []Window) (Window, bool) {
+func shortestMeasured(ws []Window) (Window, bool) {
 	var best Window
 	found := false
 	for _, w := range ws {
-		if w.DurationHours <= 0 || (w.Kind != "rolling" && w.Kind != "fixed_reset") {
+		if w.DurationHours <= 0 || (w.Kind != "rolling" && w.Kind != "fixed_reset") || w.UsedPct == nil || w.ResetsAt.IsZero() {
 			continue
 		}
 		if !found || w.DurationHours < best.DurationHours {

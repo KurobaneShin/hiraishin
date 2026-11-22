@@ -244,3 +244,20 @@ func TestSnapshotSharesPoolWindowsAndWarnDegrades(t *testing.T) {
 		}
 	}
 }
+
+func TestExpiryFallsBackToTheShortestWindowWithAKnownReset(t *testing.T) {
+	cfg := baseConfig()
+	ps := snapshot(cfg, func(m map[string]*Provider) {
+		setWindow(m["kimi"], "5h", 0, time.Time{})
+		setWindow(m["kimi"], "weekly", 86, now.Add(72*time.Hour))
+	})
+	d, err := Select(Request{Job: Job{ID: "j", Role: "gameplay"}, Trigger: TriggerInitial, Now: now, Config: cfg, Providers: ps})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := candidate(t, d, "kimi")
+	want := 0.14 * (1 - 72.0/168) * expiryGain
+	if k.ExpiryNeutral || !near(k.Features.Expiry, want) {
+		t.Fatalf("expiry = %v neutral = %v, want %v from the weekly window", k.Features.Expiry, k.ExpiryNeutral, want)
+	}
+}
