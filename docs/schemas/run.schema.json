@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "hiraishin run --json and MCP dispatch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "job", "decision", "dispatch"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "role", "state"],
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "role": {"type": "string"},
+        "state": {"type": "string"}
+      }
+    },
+    "decision": {
+      "$ref": "why.schema.json#/$defs/decision"
+    },
+    "dispatch": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["attempt_id", "attempt_num", "decision_id", "provider_id", "terminal_adapter", "terminal_handle", "attempt_dir", "start_commit"],
+      "properties": {
+        "attempt_id": {"type": "string"},
+        "attempt_num": {"type": "integer", "minimum": 1},
+        "decision_id": {"type": "string"},
+        "provider_id": {"type": "string"},
+        "terminal_adapter": {"enum": ["process", "tmux", "orca"]},
+        "terminal_handle": {"type": "string"},
+        "attempt_dir": {"type": "string"},
+        "start_commit": {"type": "string"}
+      }
+    }
+  }
+}

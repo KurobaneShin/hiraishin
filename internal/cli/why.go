@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -35,12 +36,7 @@ func whyCmd(a *app) *cobra.Command {
 		Short: "Explain where a job was routed: who was skipped and how the rest scored",
 		Args:  args(1, "<job_id|decision_id>"),
 		RunE: func(cmd *cobra.Command, argv []string) error {
-			e, err := a.open(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = e.Close() }()
-			doc, err := loadWhy(cmd, e.Ledger.Reader(), argv[0], all)
+			doc, err := a.why(cmd.Context(), argv[0], all)
 			if err != nil {
 				return err
 			}
@@ -62,8 +58,16 @@ func whyCmd(a *app) *cobra.Command {
 	return cmd
 }
 
-func loadWhy(cmd *cobra.Command, r *ledger.Tx, id string, all bool) (whyDoc, error) {
-	ctx := cmd.Context()
+func (a *app) why(ctx context.Context, id string, all bool) (whyDoc, error) {
+	e, err := a.open(ctx)
+	if err != nil {
+		return whyDoc{}, err
+	}
+	defer func() { _ = e.Close() }()
+	return loadWhy(ctx, e.Ledger.Reader(), id, all)
+}
+
+func loadWhy(ctx context.Context, r *ledger.Tx, id string, all bool) (whyDoc, error) {
 	var rows []ledger.DecisionRow
 	jobID := id
 	if strings.HasPrefix(id, "dec_") {
