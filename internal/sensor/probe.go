@@ -268,6 +268,11 @@ func ClaudeAccessToken(configDir string, now time.Time) (string, error) {
 	return doc.OAuth.AccessToken, nil
 }
 
+var openCodeUsageFamily = map[string]Family{
+	"kimi-code-plan-cn": FamilyKimi,
+	"zai-coding-plan":   FamilyGLM,
+}
+
 func OpenCodeKey(dataHome, providerID string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(dataHome, "opencode", "auth.json"))
 	if errors.Is(err, os.ErrNotExist) {
@@ -433,7 +438,7 @@ func (p *Probe) apiKey(prov config.Provider) (string, error) {
 		return p.Getenv(prov.APIKeyEnv), nil
 	}
 	providerID, _, ok := strings.Cut(prov.Model, "/")
-	if prov.Harness != config.HarnessOpenCode || !ok {
+	if prov.Harness != config.HarnessOpenCode || !ok || openCodeUsageFamily[providerID] != FamilyOf(prov) {
 		return "", nil
 	}
 	dataHome := ""

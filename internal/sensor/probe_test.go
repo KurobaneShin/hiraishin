@@ -273,3 +273,19 @@ func TestProbeAgyRunsUsageCommand(t *testing.T) {
 		t.Errorf("command = %q, want %q", strings.Join(got, " "), want)
 	}
 }
+
+func TestProbeNeverSendsAnotherProvidersOpenCodeKey(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write(fixture(t, "endpoint/kimi_usages_live.json"))
+	}))
+	defer srv.Close()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".local", "share", "opencode", "auth.json"), `{"openrouter":{"type":"api","key":"or-key"}}`)
+	p := &Probe{Client: srv.Client(), Getenv: func(string) string { return "" }, Home: home, Now: time.Now, URLs: map[Family]string{FamilyKimi: srv.URL}}
+	prov := config.Provider{Harness: config.HarnessOpenCode, Model: "openrouter/moonshotai/kimi-k3", Sensor: config.Sensor{Mode: "endpoint"}}
+	if _, err := p.Sample(context.Background(), prov); err != nil || hits != 0 {
+		t.Fatalf("openrouter key sent to the Kimi usage endpoint: hits=%d err=%v", hits, err)
+	}
+}
