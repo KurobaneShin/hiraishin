@@ -57,6 +57,7 @@ Profiles (hiraishin profile set <name>)
   balanced             quality 0.35  expiring 0.30  scarcity 0.25  speed 0.10
 
 See one decision in detail: hiraishin why <job_id>
+Preview a decision without dispatching: hiraishin run --dry-run [--role <role>]
 `
 
 func routingTopic() *cobra.Command {

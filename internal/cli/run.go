@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -11,11 +13,13 @@ import (
 
 	"github.com/KurobaneShin/hiraishin/internal/dispatch"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
+	"github.com/KurobaneShin/hiraishin/internal/scheduler"
+	"github.com/KurobaneShin/hiraishin/internal/watch"
 )
 
 type runOpts struct {
 	role, worktree, brief, name, report, adapter, provider string
-	neverSwitch                                            bool
+	neverSwitch, dryRun, noSensors                         bool
 }
 
 func runCmd(a *app) *cobra.Command {
@@ -25,6 +29,9 @@ func runCmd(a *app) *cobra.Command {
 		Short: "Queue a job, pick a provider and launch it in the worktree",
 		Args:  args(0, ""),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if o.dryRun {
+				return a.dryRun(cmd, o)
+			}
 			if o.brief == "" {
 				return usageError{msg: "--brief is required"}
 			}
@@ -40,7 +47,40 @@ func runCmd(a *app) *cobra.Command {
 	f.StringVar(&o.adapter, "adapter", "", "terminal adapter: process, tmux or orca (default: general.default_terminal_adapter)")
 	f.StringVar(&o.provider, "provider", "", "pin the job to one provider (implies --never-switch)")
 	f.BoolVar(&o.neverSwitch, "never-switch", false, "wait for quota instead of switching providers mid-job")
+	f.BoolVar(&o.dryRun, "dry-run", false, "show which provider the job would get and why, without queuing or launching it")
+	f.BoolVar(&o.noSensors, "no-sensors", false, "with --dry-run: decide on the last recorded usage without polling usage endpoints")
 	return cmd
+}
+
+func (a *app) dryRun(cmd *cobra.Command, o runOpts) error {
+	ctx := cmd.Context()
+	e, err := a.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = e.Close() }()
+	if o.provider != "" {
+		if err := requireProvider(e, o.provider); err != nil {
+			return err
+		}
+	}
+	if _, _, err := e.Cfg.Role(o.role); err != nil {
+		return usageError{msg: err.Error()}
+	}
+	if !o.noSensors {
+		if err := watch.New(e, a.probe(), slog.New(slog.NewTextHandler(io.Discard, nil)), 0).Poll(ctx); err != nil {
+			return err
+		}
+	}
+	job := ledger.JobRow{ID: "dry-run", Name: cmp.Or(o.name, "nothing dispatched"), Role: o.role, PinnedProvider: o.provider}
+	d, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil)
+	if err != nil {
+		return err
+	}
+	d.DecisionID = "not recorded"
+	out := cmd.OutOrStdout()
+	renderWhy(out, whyJob{ID: job.ID, Name: job.Name, Role: job.Role}, d, palette{on: colorEnabled(out, a.env.Getenv)})
+	return nil
 }
 
 func (a *app) run(cmd *cobra.Command, o runOpts) error {

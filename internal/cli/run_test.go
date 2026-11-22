@@ -131,3 +131,27 @@ func TestCancelStopsAgent(t *testing.T) {
 	}
 	h.run(1, "cancel", id)
 }
+
+func TestRunDryRunExplainsWithoutWritingTheLedger(t *testing.T) {
+	h := newHarness(t)
+	h.run(0, "pause", "kimi")
+	e := h.engine()
+	before, err := e.Ledger.Reader().LastSeq(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := h.run(0, "run", "--dry-run", "--no-sensors")
+	for _, want := range []string{"dry run", "not recorded", "✗ kimi", "✓ agy", "picked", "help routing"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry run output lacks %q:\n%s", want, out)
+		}
+	}
+	after, err := e.Ledger.Reader().LastSeq(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Errorf("dry run wrote %d ledger events", after-before)
+	}
+	h.run(2, "run", "--dry-run", "--no-sensors", "--provider", "missing")
+}
