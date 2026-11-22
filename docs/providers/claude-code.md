@@ -109,7 +109,7 @@ Key clause in Anthropic's Consumer Terms of Service (Use Restrictions):
 **Compliance boundary for `hiraishin`:**
 - Running the official `claude` CLI (including `claude -p`, which Anthropic documents in [Run Claude Code programmatically](https://claude-code.mintlify.app/docs/automation/run-programmatically)) on the user's own workstation under the user's own login is the officially supported surface.
 - Extracting Claude Code's OAuth token to feed a third-party API client, reverse proxy, or multi-tenant pool is prohibited — and explicitly forbidden by [ADR 0001](../adr/0001-no-proxy.md).
-- Polling `/api/oauth/usage` directly from `hiraishin` sits in a gray area because it reads the OAuth token from `~/.claude/.credentials.json` for a metadata GET request; therefore `hiraishin` makes endpoint polling **opt-in** (`sensor.mode = "endpoint"` or `"auto"` confirmed during `hiraishin init`) and supports zero-endpoint local-log + output-regex operation.
+- Polling `/api/oauth/usage` directly from `hiraishin` sits in a gray area because it reads the OAuth token from `<config_dir>/.credentials.json` for a metadata GET request. `hiraishin init` writes `sensor.mode = "auto"`, which polls it read-only (never refreshing the token, skipping an expired one, at most once per `poll_interval_sec` across `watch` and `status`); set `sensor.mode = "local_logs"` or `"output_regex"` on a Claude provider to opt out.
 
 ## Open Risks
 

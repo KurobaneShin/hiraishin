@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,15 +33,21 @@ const (
 	KimiUsagesURL   = "https://api.kimi.com/coding/v1/usages"
 	ZAIQuotaURL     = "https://api.z.ai/api/monitor/usage/quota/limit"
 	ZhipuQuotaURL   = "https://open.bigmodel.cn/api/monitor/usage/quota/limit"
+	ClaudeUsageURL  = "https://api.anthropic.com/api/oauth/usage"
+	claudeUsageBeta = "oauth-2025-04-20"
+	agyUsageTimeout = 30 * time.Second
 	maxEndpointBody = 1 << 20
 )
 
-func fetchJSON(ctx context.Context, client *http.Client, url, key string) ([]byte, error) {
+func fetchJSON(ctx context.Context, client *http.Client, url, key string, extra ...[2]string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
+	for _, h := range extra {
+		req.Header.Set(h[0], h[1])
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "hiraishin")
 	resp, err := client.Do(req)
@@ -154,6 +161,134 @@ func ParseZAIQuota(body []byte) ([]Sample, error) {
 	return out, nil
 }
 
+func ParseClaudeUsage(body []byte) ([]Sample, error) {
+	type window struct {
+		Utilization *float64 `json:"utilization"`
+		ResetsAt    string   `json:"resets_at"`
+	}
+	var doc struct {
+		FiveHour *window `json:"five_hour"`
+		SevenDay *window `json:"seven_day"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("parse claude usage: %w", err)
+	}
+	if doc.FiveHour == nil && doc.SevenDay == nil {
+		return nil, errors.New("parse claude usage: no five_hour or seven_day window")
+	}
+	var out []Sample
+	for _, w := range []struct {
+		name, kind string
+		win        *window
+	}{{"5h", "rolling", doc.FiveHour}, {"weekly", "fixed_reset", doc.SevenDay}} {
+		s := Sample{Window: w.name, Kind: w.kind, UsedPct: pct(0), Confidence: ledger.ConfidenceExact, Tier: "endpoint"}
+		if w.win != nil && w.win.Utilization != nil {
+			s.UsedPct = pct(*w.win.Utilization)
+			at, _ := time.Parse(time.RFC3339Nano, w.win.ResetsAt)
+			s.ResetsAt = at.UTC()
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
+func ParseAgyUsage(out []byte) ([]Sample, error) {
+	for line := range strings.Lines(string(out)) {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var doc struct {
+			Status  string `json:"status"`
+			Command struct {
+				Name string `json:"name"`
+				Data struct {
+					Groups []struct {
+						Buckets []struct {
+							Window            string   `json:"window"`
+							RemainingFraction *float64 `json:"remaining_fraction"`
+							ResetTime         string   `json:"reset_time"`
+							Disabled          bool     `json:"disabled"`
+						} `json:"buckets"`
+					} `json:"groups"`
+				} `json:"data"`
+			} `json:"command"`
+		}
+		if json.Unmarshal([]byte(line), &doc) != nil || doc.Status != "SUCCESS" || doc.Command.Name != "usage" {
+			continue
+		}
+		worst := map[string]Sample{}
+		for _, g := range doc.Command.Data.Groups {
+			for _, b := range g.Buckets {
+				kind, ok := map[string]string{"5h": "rolling", "weekly": "fixed_reset"}[b.Window]
+				if !ok || b.Disabled || b.RemainingFraction == nil {
+					continue
+				}
+				used := pct((1 - *b.RemainingFraction) * 100)
+				if cur, seen := worst[b.Window]; seen && *cur.UsedPct >= *used {
+					continue
+				}
+				at, _ := time.Parse(time.RFC3339Nano, b.ResetTime)
+				worst[b.Window] = Sample{Window: b.Window, Kind: kind, UsedPct: used, ResetsAt: at.UTC(), Confidence: ledger.ConfidenceExact, Tier: "cli"}
+			}
+		}
+		var samples []Sample
+		for _, w := range worst {
+			samples = append(samples, w)
+		}
+		if len(samples) == 0 {
+			return nil, errors.New("parse agy usage: no 5h or weekly bucket")
+		}
+		sortSamples(samples)
+		return samples, nil
+	}
+	return nil, errors.New("parse agy usage: no usage JSON in agy output")
+}
+
+func ClaudeAccessToken(configDir string, now time.Time) (string, error) {
+	b, err := os.ReadFile(filepath.Join(configDir, ".credentials.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var doc struct {
+		OAuth struct {
+			AccessToken string `json:"accessToken"`
+			ExpiresAt   int64  `json:"expiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return "", fmt.Errorf("parse claude credentials: %w", err)
+	}
+	if doc.OAuth.ExpiresAt > 0 && !now.Before(time.UnixMilli(doc.OAuth.ExpiresAt)) {
+		return "", nil
+	}
+	return doc.OAuth.AccessToken, nil
+}
+
+func OpenCodeKey(dataHome, providerID string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(dataHome, "opencode", "auth.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var doc map[string]struct {
+		Type string `json:"type"`
+		Key  string `json:"key"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return "", fmt.Errorf("parse opencode auth: %w", err)
+	}
+	if e := doc[providerID]; e.Type == "api" {
+		return e.Key, nil
+	}
+	return "", nil
+}
+
 func sortSamples(s []Sample) {
 	if len(s) == 2 && s[0].Window > s[1].Window {
 		s[0], s[1] = s[1], s[0]
@@ -205,6 +340,8 @@ func (p *Probe) endpointURL(f Family, prov config.Provider) string {
 		return u
 	}
 	switch f {
+	case FamilyClaude:
+		return ClaudeUsageURL
 	case FamilyKimi:
 		return KimiUsagesURL
 	case FamilyGLM:
@@ -249,23 +386,64 @@ func (p *Probe) Sample(ctx context.Context, prov config.Provider) ([]Sample, err
 }
 
 func (p *Probe) endpoint(ctx context.Context, f Family, prov config.Provider) ([]Sample, error) {
-	if prov.APIKeyEnv == "" || (f != FamilyKimi && f != FamilyGLM) {
-		return nil, nil
+	var key string
+	var err error
+	var extra [][2]string
+	var parse func([]byte) ([]Sample, error)
+	switch {
+	case f == FamilyAgy && prov.Harness == config.HarnessAgy:
+		return p.agyUsage(ctx)
+	case f == FamilyClaude && prov.Harness == config.HarnessClaudeCode:
+		key, err = ClaudeAccessToken(ClaudeDir(prov, p.Home), p.Now())
+		extra, parse = [][2]string{{"anthropic-beta", claudeUsageBeta}}, ParseClaudeUsage
+	case f == FamilyKimi:
+		key, err = p.apiKey(prov)
+		parse = ParseKimiUsages
+	case f == FamilyGLM:
+		key, err = p.apiKey(prov)
+		parse = ParseZAIQuota
 	}
-	key := p.Getenv(prov.APIKeyEnv)
-	if key == "" {
-		return nil, nil
+	if err != nil || key == "" {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, p.timeout())
 	defer cancel()
-	body, err := fetchJSON(ctx, p.Client, p.endpointURL(f, prov), key)
+	body, err := fetchJSON(ctx, p.Client, p.endpointURL(f, prov), key, extra...)
 	if err != nil {
 		return nil, err
 	}
-	if f == FamilyKimi {
-		return ParseKimiUsages(body)
+	return parse(body)
+}
+
+func (p *Probe) agyUsage(ctx context.Context) ([]Sample, error) {
+	if p.Run == nil {
+		return nil, nil
 	}
-	return ParseZAIQuota(body)
+	ctx, cancel := context.WithTimeout(ctx, agyUsageTimeout)
+	defer cancel()
+	out, err := p.Run(ctx, "env", "AGY_CLI_DISABLE_AUTO_UPDATE=true", "agy", "-p", "/usage", "--output-format", "json", "--print-timeout", "20s")
+	if err != nil {
+		return nil, fmt.Errorf("agy /usage: %w", err)
+	}
+	return ParseAgyUsage(out)
+}
+
+func (p *Probe) apiKey(prov config.Provider) (string, error) {
+	if prov.APIKeyEnv != "" {
+		return p.Getenv(prov.APIKeyEnv), nil
+	}
+	providerID, _, ok := strings.Cut(prov.Model, "/")
+	if prov.Harness != config.HarnessOpenCode || !ok {
+		return "", nil
+	}
+	dataHome := ""
+	if p.Getenv != nil {
+		dataHome = p.Getenv("XDG_DATA_HOME")
+	}
+	if dataHome == "" {
+		dataHome = filepath.Join(p.Home, ".local", "share")
+	}
+	return OpenCodeKey(dataHome, providerID)
 }
 
 func (p *Probe) timeout() time.Duration {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"github.com/KurobaneShin/hiraishin/internal/dispatch"
 	"github.com/KurobaneShin/hiraishin/internal/engine"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
+	"github.com/KurobaneShin/hiraishin/internal/sensor"
 )
 
 const cfgText = `
@@ -25,6 +28,7 @@ schema_version = 1
 active_profile = "burn-expiring-first"
 [providers.kimi]
 harness = "kimi-native"
+api_key_env = "KIMI_TEST_KEY"
 quality_tier = 4
 scarcity_tier = 2
 speed_tier = 4
@@ -302,5 +306,47 @@ func TestSessionIDFollowsFailover(t *testing.T) {
 	f.tickUntil("COMPLETED", f.state(job.ID))
 	if got, _ := f.job(job.ID); got.NativeSessionID != "ses_agy" {
 		t.Fatalf("native_session_id = %q", got.NativeSessionID)
+	}
+}
+
+func TestPollSkipsProvidersWithFreshLedgerSamples(t *testing.T) {
+	f := setup(t, nil)
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{"usages":{"limit_5h":{"used_ratio":0.25,"reset_time":"2026-11-22T05:00:00Z"},"limit_7d":{"used_ratio":0.5,"reset_time":"2026-11-25T05:00:00Z"}}}`))
+	}))
+	defer srv.Close()
+	probe := &sensor.Probe{Client: srv.Client(), Getenv: func(k string) string { return map[string]string{"KIMI_TEST_KEY": "k"}[k] },
+		Home: t.TempDir(), Now: f.clock.now, URLs: map[sensor.Family]string{sensor.FamilyKimi: srv.URL}}
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if err := New(f.e, probe, quiet, time.Second).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Fatalf("first poll hits = %d, want 1", hits)
+	}
+	if err := New(f.e, probe, quiet, time.Second).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 1 {
+		t.Fatalf("a new watcher re-polled a provider sampled moments ago: hits = %d", hits)
+	}
+	f.clock.add(121 * time.Second)
+	if err := New(f.e, probe, quiet, time.Second).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 2 {
+		t.Fatalf("stale sample was not refreshed: hits = %d", hits)
+	}
+	wins, _ := f.e.Ledger.Reader().Windows(context.Background())
+	got := map[string]float64{}
+	for _, w := range wins {
+		if w.ProviderID == "kimi" && w.UsedPct != nil {
+			got[w.Name] = *w.UsedPct
+		}
+	}
+	if got["5h"] != 25 || got["weekly"] != 50 {
+		t.Fatalf("kimi windows = %v", got)
 	}
 }

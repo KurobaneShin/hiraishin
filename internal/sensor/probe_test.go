@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -149,5 +150,126 @@ not json
 	}
 	if n, err := ClaudeTokens(filepath.Join(home, "missing"), now); err != nil || n != 0 {
 		t.Fatalf("missing dir = %d, %v", n, err)
+	}
+}
+
+func TestParseLiveEndpoints(t *testing.T) {
+	k, err := ParseKimiUsages(fixture(t, "endpoint/kimi_usages_live.json"))
+	if err != nil || len(k) != 2 {
+		t.Fatalf("kimi = %+v, %v", k, err)
+	}
+	assertSample(t, k[0], "5h", 0, time.Date(2026, 11, 22, 5, 17, 29, 0, time.UTC))
+	assertSample(t, k[1], "weekly", 40.68, time.Date(2026, 11, 23, 12, 17, 28, 0, time.UTC))
+
+	z, err := ParseZAIQuota(fixture(t, "endpoint/zai_quota_live.json"))
+	if err != nil || len(z) != 2 {
+		t.Fatalf("zai = %+v, %v", z, err)
+	}
+	assertSample(t, z[0], "5h", 9, time.UnixMilli(1795310029392).UTC())
+	assertSample(t, z[1], "weekly", 94, time.UnixMilli(1795440447983).UTC())
+
+	c, err := ParseClaudeUsage(fixture(t, "endpoint/claude_oauth_usage.json"))
+	if err != nil || len(c) != 2 {
+		t.Fatalf("claude = %+v, %v", c, err)
+	}
+	assertSample(t, c[0], "5h", 51, time.Date(2026, 11, 22, 1, 10, 0, 237155000, time.UTC))
+	assertSample(t, c[1], "weekly", 41, time.Date(2026, 11, 24, 4, 0, 0, 237174000, time.UTC))
+
+	idle, err := ParseClaudeUsage(fixture(t, "endpoint/claude_oauth_usage_no_5h.json"))
+	if err != nil || len(idle) != 2 {
+		t.Fatalf("claude without a 5h window = %+v, %v", idle, err)
+	}
+	assertSample(t, idle[0], "5h", 0, time.Time{})
+	assertSample(t, idle[1], "weekly", 86, time.Date(2026, 11, 25, 1, 59, 59, 525174000, time.UTC))
+
+	if _, err := ParseClaudeUsage([]byte(`{"five_hour":null,"seven_day":null}`)); err == nil {
+		t.Error("want error when no Claude window is present")
+	}
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProbeClaudeEndpointReadsAccountToken(t *testing.T) {
+	var gotAuth, gotBeta string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, gotBeta = r.Header.Get("Authorization"), r.Header.Get("anthropic-beta")
+		_, _ = w.Write(fixture(t, "endpoint/claude_oauth_usage.json"))
+	}))
+	defer srv.Close()
+	home := t.TempDir()
+	now := time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC)
+	writeFile(t, filepath.Join(home, "profiles", "b", ".credentials.json"), `{"claudeAiOauth":{"accessToken":"tok-b","expiresAt":1795400000000}}`)
+	p := &Probe{Client: srv.Client(), Home: home, Now: func() time.Time { return now }, URLs: map[Family]string{FamilyClaude: srv.URL}}
+	prov := config.Provider{Harness: config.HarnessClaudeCode, ConfigDir: "~/profiles/b", Sensor: config.Sensor{Mode: "auto"}}
+	s, err := p.Sample(context.Background(), prov)
+	if err != nil || len(s) != 2 || s[0].Tier != "endpoint" {
+		t.Fatalf("samples = %+v, %v", s, err)
+	}
+	if gotAuth != "Bearer tok-b" || gotBeta != "oauth-2025-04-20" {
+		t.Errorf("headers = %q %q", gotAuth, gotBeta)
+	}
+	gotAuth = ""
+	writeFile(t, filepath.Join(home, "profiles", "b", ".credentials.json"), `{"claudeAiOauth":{"accessToken":"tok-old","expiresAt":1795300000000}}`)
+	if s, err := p.Sample(context.Background(), prov); err != nil || gotAuth != "" || (len(s) > 0 && s[0].Tier == "endpoint") {
+		t.Fatalf("expired token must not be sent: samples=%+v err=%v auth=%q", s, err, gotAuth)
+	}
+	prov.Sensor.Mode = "local_logs"
+	writeFile(t, filepath.Join(home, "profiles", "b", ".credentials.json"), `{"claudeAiOauth":{"accessToken":"tok-b","expiresAt":1795400000000}}`)
+	if _, err := p.Sample(context.Background(), prov); err != nil || gotAuth != "" {
+		t.Fatalf("local_logs mode must not call the endpoint: err=%v auth=%q", err, gotAuth)
+	}
+}
+
+func TestProbeOpenCodeProviderUsesOpenCodeKey(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write(fixture(t, "endpoint/kimi_usages_live.json"))
+	}))
+	defer srv.Close()
+	home := t.TempDir()
+	writeFile(t, filepath.Join(home, ".local", "share", "opencode", "auth.json"), `{"kimi-code-plan-cn":{"type":"api","key":"oc-kimi"},"zai-coding-plan":{"type":"api","key":"oc-zai"}}`)
+	p := &Probe{Client: srv.Client(), Getenv: func(string) string { return "" }, Home: home, Now: time.Now, URLs: map[Family]string{FamilyKimi: srv.URL}}
+	prov := config.Provider{Harness: config.HarnessOpenCode, Model: "kimi-code-plan-cn/k3.1-pro", Sensor: config.Sensor{Mode: "auto"}}
+	s, err := p.Sample(context.Background(), prov)
+	if err != nil || len(s) != 2 || gotAuth != "Bearer oc-kimi" {
+		t.Fatalf("samples = %+v, %v, auth = %q", s, err, gotAuth)
+	}
+}
+
+func TestParseAgyUsage(t *testing.T) {
+	s, err := ParseAgyUsage(fixture(t, "agy/usage.jsonl"))
+	if err != nil || len(s) != 2 {
+		t.Fatalf("agy = %+v, %v", s, err)
+	}
+	assertSample(t, s[0], "5h", (1-0.41664940118789673)*100, time.Date(2026, 11, 22, 1, 11, 34, 0, time.UTC))
+	assertSample(t, s[1], "weekly", (1-0.5754887461662292)*100, time.Date(2026, 11, 28, 15, 11, 34, 0, time.UTC))
+	if _, err := ParseAgyUsage([]byte("Authentication required. Please visit the URL\n")); err == nil {
+		t.Error("want error when agy prints no usage JSON")
+	}
+}
+
+func TestProbeAgyRunsUsageCommand(t *testing.T) {
+	var got []string
+	p := &Probe{Now: time.Now, Home: t.TempDir(), Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		got = append([]string{name}, args...)
+		return fixture(t, "agy/usage.jsonl"), nil
+	}}
+	prov := config.Provider{Harness: config.HarnessAgy, Sensor: config.Sensor{Mode: "auto"}}
+	s, err := p.Sample(context.Background(), prov)
+	if err != nil || len(s) != 2 || s[0].Tier != "cli" {
+		t.Fatalf("samples = %+v, %v", s, err)
+	}
+	want := "env AGY_CLI_DISABLE_AUTO_UPDATE=true agy -p /usage --output-format json --print-timeout 20s"
+	if strings.Join(got, " ") != want {
+		t.Errorf("command = %q, want %q", strings.Join(got, " "), want)
 	}
 }

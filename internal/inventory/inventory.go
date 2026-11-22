@@ -211,19 +211,12 @@ func openCodeAgents(sys System) ([]Found, error) {
 
 func provider(harness, model, agent string, quality, scarcity, speed, maxConcurrent int, pool, keyEnv string) config.Provider {
 	enabled := true
-	windows := []config.Window{{Name: "5h", Kind: "rolling", DurationHours: 5}}
-	if harness != config.HarnessAgy {
-		windows = append(windows, config.Window{Name: "weekly", Kind: "fixed_reset", DurationHours: 168})
-	}
-	mode := "output_regex"
-	if keyEnv != "" {
-		mode = "auto"
-	}
+	windows := []config.Window{{Name: "5h", Kind: "rolling", DurationHours: 5}, {Name: "weekly", Kind: "fixed_reset", DurationHours: 168}}
 	return config.Provider{
 		Enabled: &enabled, Harness: harness, Model: model, HarnessAgent: agent, CostClass: "subscription",
 		QualityTier: quality, ScarcityTier: scarcity, SpeedTier: speed, MaxConcurrent: maxConcurrent,
 		SharedQuotaPool: pool, APIKeyEnv: keyEnv, Windows: windows,
-		Sensor: config.Sensor{Mode: mode, PollIntervalSec: config.MinPollSeconds},
+		Sensor: config.Sensor{Mode: "auto", PollIntervalSec: config.MinPollSeconds},
 	}
 }
 

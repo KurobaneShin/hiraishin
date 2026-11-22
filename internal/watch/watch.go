@@ -73,7 +73,7 @@ func (w *Watcher) Tick(ctx context.Context) (int, error) {
 	if err := e.Maintain(ctx); err != nil {
 		return 0, err
 	}
-	if err := w.poll(ctx); err != nil {
+	if err := w.Poll(ctx); err != nil {
 		return 0, err
 	}
 	r := e.Ledger.Reader()
@@ -345,9 +345,37 @@ func (w *Watcher) prompt(ctx context.Context, job ledger.JobRow, att *ledger.Att
 	return dispatch.ResumePrompt(data, role.ResumePromptTemplate)
 }
 
-func (w *Watcher) poll(ctx context.Context) error {
+func (w *Watcher) Due(ctx context.Context) ([]string, error) {
 	if w.probe == nil {
-		return nil
+		return nil, nil
+	}
+	e := w.engine
+	now := e.Now()
+	wins, err := e.Ledger.Reader().Windows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sampled := map[string]time.Time{}
+	for _, win := range wins {
+		if win.SampledAt.After(sampled[win.ProviderID]) {
+			sampled[win.ProviderID] = win.SampledAt
+		}
+	}
+	var due []string
+	for _, id := range e.Cfg.ProviderIDs() {
+		prov := e.Cfg.Providers[id]
+		fresh := now.Sub(sampled[id]) < time.Duration(prov.Sensor.PollIntervalSec)*time.Second
+		if prov.IsEnabled() && !fresh && w.guard.Allow(id, now) {
+			due = append(due, id)
+		}
+	}
+	return due, nil
+}
+
+func (w *Watcher) Poll(ctx context.Context) error {
+	due, err := w.Due(ctx)
+	if err != nil || len(due) == 0 {
+		return err
 	}
 	e := w.engine
 	now := e.Now()
@@ -355,12 +383,6 @@ func (w *Watcher) poll(ctx context.Context) error {
 		id      string
 		samples []sensor.Sample
 		err     error
-	}
-	var due []string
-	for _, id := range e.Cfg.ProviderIDs() {
-		if e.Cfg.Providers[id].IsEnabled() && w.guard.Allow(id, now) {
-			due = append(due, id)
-		}
 	}
 	results := make([]result, len(due))
 	var wg sync.WaitGroup
