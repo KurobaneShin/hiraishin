@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -348,6 +349,39 @@ func (t *Tx) JobEvents(ctx context.Context, jobID string) ([]EventRow, error) {
 		}
 		e.TS, e.Kind, e.ProviderID, e.JobID = parseTime(ts), Kind(kind), provider.String, job.String
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+type SampleRow struct {
+	ProviderID string
+	WindowName string
+	At         time.Time
+	UsedPct    float64
+	ResetsAt   time.Time
+}
+
+func (t *Tx) QuotaSamples(ctx context.Context, since time.Time) ([]SampleRow, error) {
+	rows, err := t.q.QueryContext(ctx, `SELECT ts, provider_id, payload_json FROM events WHERE kind = ? AND ts >= ? ORDER BY ts, seq`, string(KindQuotaSampled), formatTime(since))
+	if err != nil {
+		return nil, fmt.Errorf("query quota samples: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []SampleRow
+	for rows.Next() {
+		var ts, provider sql.NullString
+		var body string
+		if err := rows.Scan(&ts, &provider, &body); err != nil {
+			return nil, fmt.Errorf("scan quota sample: %w", err)
+		}
+		var p QuotaSampled
+		if err := json.Unmarshal([]byte(body), &p); err != nil {
+			return nil, fmt.Errorf("decode quota sample: %w", err)
+		}
+		if p.UsedPct == nil {
+			continue
+		}
+		out = append(out, SampleRow{ProviderID: provider.String, WindowName: p.WindowName, At: parseTime(ts), UsedPct: *p.UsedPct, ResetsAt: p.ResetsAt})
 	}
 	return out, rows.Err()
 }

@@ -11,18 +11,20 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 	"github.com/KurobaneShin/hiraishin/internal/watch"
 )
 
 type statusWindow struct {
-	Name            string    `json:"name"`
-	Kind            string    `json:"kind"`
-	UsedPct         *float64  `json:"used_pct"`
-	ResetsAt        time.Time `json:"resets_at,omitzero"`
-	ResetsInSeconds *int64    `json:"resets_in_seconds"`
-	Confidence      string    `json:"confidence"`
+	Name            string             `json:"name"`
+	Kind            string             `json:"kind"`
+	UsedPct         *float64           `json:"used_pct"`
+	ResetsAt        time.Time          `json:"resets_at,omitzero"`
+	ResetsInSeconds *int64             `json:"resets_in_seconds"`
+	Confidence      string             `json:"confidence"`
+	Forecast        *forecast.Forecast `json:"forecast,omitempty"`
 }
 
 type statusProvider struct {
@@ -156,7 +158,7 @@ func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, warn floa
 			sp.State = "DISABLED"
 		}
 		for _, w := range p.Windows {
-			sw := statusWindow{Name: w.Name, Kind: w.Kind, UsedPct: w.UsedPct, ResetsAt: w.ResetsAt, Confidence: w.Confidence}
+			sw := statusWindow{Name: w.Name, Kind: w.Kind, UsedPct: w.UsedPct, ResetsAt: w.ResetsAt, Confidence: w.Confidence, Forecast: w.Forecast}
 			if !w.ResetsAt.IsZero() {
 				secs := int64(w.ResetsAt.Sub(now).Seconds())
 				sw.ResetsInSeconds = &secs
@@ -219,6 +221,15 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 			}
 			if w.Confidence != "" && w.Confidence != ledger.ConfidenceExact {
 				fmt.Fprintf(&b, "  %s", pal.paint(dim, clean(w.Confidence)))
+			}
+			if f := w.Forecast; f != nil {
+				fmt.Fprintf(&b, "  %s", pal.paint(dim, fmt.Sprintf("burn %.3g%%/h", f.PctPerHour)))
+				switch {
+				case f.EmptiesBeforeReset:
+					fmt.Fprintf(&b, "  %s", pal.paint(yellow, "empty in "+duration(time.Duration(*f.TimeToEmptySeconds)*time.Second)+" before reset"))
+				case f.PerishableWasteRisk > 0:
+					fmt.Fprintf(&b, "  %s", pal.paint(dim, fmt.Sprintf("waste risk %.0f%%", 100*f.PerishableWasteRisk)))
+				}
 			}
 			b.WriteString("\n")
 		}
