@@ -459,7 +459,7 @@ func TestE2EFailoverPreservesDirtyWorktreeAndCompletes(t *testing.T) {
 			}
 		}
 		text := e.ok("why", id)
-		for _, want := range []string{"(failover)", "REJECTED", "state=EXHAUSTED", "excluded for this failover", "Chosen:   agy", "Q=", "order=+"} {
+		for _, want := range []string{"failover", "✗ kimi", "state=EXHAUSTED", "excluded for this failover", "✓ agy", "picked", "quality", "speed", "help routing"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("why text missing %q:\n%s", want, text)
 			}

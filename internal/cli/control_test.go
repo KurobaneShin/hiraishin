@@ -170,7 +170,7 @@ func TestStatusJSONAndText(t *testing.T) {
 	doc := h.run(0, "status", "--json", "--no-sensors")
 	validate(t, "status.schema.json", doc)
 	text := h.run(0, "status", "--no-sensors")
-	for _, want := range []string{"kimi", "available", "0/2", "40%", "resets 1h12m", "agy", "profile burn-expiring-first"} {
+	for _, want := range []string{"kimi", "available", "0/2 jobs", "40%", "resets 1h12m", "agy", "profile burn-expiring-first", "hiraishin help routing"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("status text missing %q:\n%s", want, text)
 		}
@@ -199,7 +199,7 @@ func TestRenderStatusGroupsPoolsAndColorsByThreshold(t *testing.T) {
 	if n := strings.Count(text, "90%"); n != 1 {
 		t.Errorf("pool windows must print once, got %d:\n%s", n, text)
 	}
-	for _, want := range []string{"zai", "glm-a", "glm-b", "degraded", "usage endpoint: HTTP 500", "agy", "?", "estimated"} {
+	for _, want := range []string{"zai", "glm-a", "glm-b", "degraded", "usage endpoint: HTTP 500", "agy", "?", "estimated", "2 near limit"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q:\n%s", want, text)
 		}
@@ -229,10 +229,22 @@ func TestWhyMatchesDecisionRow(t *testing.T) {
 		}
 	}
 	text := h.run(0, "why", d.DecisionID)
-	for _, want := range []string{"Decision: " + d.DecisionID, "Profile:  burn-expiring-first (Q=0.20, E=0.50, S=0.20, L=0.10)", "Chosen:   kimi", "REJECTED  state=PAUSED", "order=+0.030", "Summary: Picked kimi"} {
+	for _, want := range []string{"decision " + d.DecisionID, "profile burn-expiring-first", "quality 0.20", "expiring 0.50", "✓ kimi", "picked", "✗ agy", "state=PAUSED", "order +0.030", "Picked kimi", "hiraishin help routing"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("why text missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "\x1b[") {
+		t.Errorf("why wrote ANSI escapes to a non-terminal:\n%q", text)
+	}
+	help := h.run(0, "help", "routing")
+	for _, want := range []string{"Slots", "max_concurrent", "reserve_used_pct", "never_switch_mid_task", "shared_quota_pool", "burn-expiring-first", "hiraishin why"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("help routing missing %q:\n%s", want, help)
+		}
+	}
+	if root := h.run(0, "--help"); !strings.Contains(root, "routing") {
+		t.Errorf("root help does not list the routing topic:\n%s", root)
 	}
 	h.run(1, "why", "job_missing")
 }

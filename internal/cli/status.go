@@ -175,7 +175,7 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 	var pools []string
 	members := map[string][]statusProvider{}
 	nameWidth := 0
-	notReady := 0
+	nearLimit, unavailable := 0, 0
 	for _, p := range doc.Providers {
 		pool := cmp.Or(p.Pool, p.ID)
 		if _, seen := members[pool]; !seen {
@@ -183,18 +183,25 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 		}
 		members[pool] = append(members[pool], p)
 		nameWidth = max(nameWidth, len(p.ID))
-		if p.State != ledger.StateAvailable {
-			notReady++
+		switch p.State {
+		case ledger.StateAvailable:
+		case ledger.StateDegraded:
+			nearLimit++
+		default:
+			unavailable++
 		}
 	}
-	fmt.Fprintf(&b, "%s  profile %s %s %d providers", pal.paint(bold, "hiraishin"), pal.paint(cyan, doc.Profile), pal.paint(dim, "·"), len(doc.Providers))
-	if notReady > 0 {
-		fmt.Fprintf(&b, " %s %s", pal.paint(dim, "·"), pal.paint(yellow, fmt.Sprintf("%d not available", notReady)))
+	fmt.Fprintf(&b, "%s  profile %s %s %d providers", pal.paint(bold, "hiraishin"), pal.paint(cyan, clean(doc.Profile)), pal.paint(dim, "·"), len(doc.Providers))
+	if nearLimit > 0 {
+		fmt.Fprintf(&b, " %s %s", pal.paint(dim, "·"), pal.paint(yellow, fmt.Sprintf("%d near limit", nearLimit)))
+	}
+	if unavailable > 0 {
+		fmt.Fprintf(&b, " %s %s", pal.paint(dim, "·"), pal.paint(red, fmt.Sprintf("%d unavailable", unavailable)))
 	}
 	b.WriteString("\n")
 	for _, pool := range pools {
 		group := members[pool]
-		fmt.Fprintf(&b, "\n %s\n", pal.paint(bold, pool))
+		fmt.Fprintf(&b, "\n %s\n", pal.paint(bold, clean(pool)))
 		var windows []statusWindow
 		for _, p := range group {
 			if len(p.Windows) > 0 {
@@ -206,24 +213,24 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 			windows = []statusWindow{{Name: "usage"}}
 		}
 		for _, w := range windows {
-			fmt.Fprintf(&b, "   %-7s %s %s", w.Name, bar(w.UsedPct, warn, reserve, pal), pal.paint(level(w.UsedPct, warn, reserve), fmt.Sprintf("%4s", percent(w.UsedPct))))
+			fmt.Fprintf(&b, "   %-7s %s %s", clean(w.Name), bar(w.UsedPct, warn, reserve, pal), pal.paint(level(w.UsedPct, warn, reserve), fmt.Sprintf("%4s", percent(w.UsedPct))))
 			if w.ResetsInSeconds != nil {
 				fmt.Fprintf(&b, "  %s", pal.paint(dim, "resets "+duration(time.Duration(*w.ResetsInSeconds)*time.Second)))
 			}
 			if w.Confidence != "" && w.Confidence != ledger.ConfidenceExact {
-				fmt.Fprintf(&b, "  %s", pal.paint(dim, w.Confidence))
+				fmt.Fprintf(&b, "  %s", pal.paint(dim, clean(w.Confidence)))
 			}
 			b.WriteString("\n")
 		}
 		for _, p := range group {
 			dot, color := stateStyle(p.State)
-			fmt.Fprintf(&b, "   %s %-*s  %s  %s", pal.paint(color, dot), nameWidth, p.ID, pal.paint(color, fmt.Sprintf("%-11s", strings.ToLower(strings.ReplaceAll(p.State, "_", " ")))), pal.paint(dim, fmt.Sprintf("%d/%d slots", p.ActiveJobs, p.MaxConcurrent)))
+			fmt.Fprintf(&b, "   %s %-*s  %s  %s", pal.paint(color, dot), nameWidth, clean(p.ID), pal.paint(color, fmt.Sprintf("%-11s", strings.ToLower(strings.ReplaceAll(clean(p.State), "_", " ")))), pal.paint(dim, fmt.Sprintf("%d/%d jobs", p.ActiveJobs, p.MaxConcurrent)))
 			if !p.CooldownUntil.IsZero() {
 				fmt.Fprintf(&b, "  %s", pal.paint(yellow, "cooldown until "+p.CooldownUntil.Local().Format("15:04")))
 			}
 			b.WriteString("\n")
 			if p.LastError != "" {
-				fmt.Fprintf(&b, "     %s\n", pal.paint(yellow, "↳ "+truncate(p.LastError, 100)))
+				fmt.Fprintf(&b, "     %s\n", pal.paint(yellow, "↳ "+truncate(clean(p.LastError), 100)))
 			}
 		}
 	}
@@ -236,6 +243,7 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 		}
 		fmt.Fprintf(&b, "\n %s %s\n", pal.paint(bold, "jobs"), strings.Join(parts, pal.paint(dim, " · ")))
 	}
+	fmt.Fprintf(&b, "\n %s\n", pal.paint(dim, "jobs = running/max at once per provider · how routing works: hiraishin help routing"))
 	_, err := io.WriteString(out, b.String())
 	return err
 }

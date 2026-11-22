@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -30,7 +32,7 @@ func whyCmd(a *app) *cobra.Command {
 	var asJSON, all bool
 	cmd := &cobra.Command{
 		Use:   "why <job_id|decision_id>",
-		Short: "Explain a scheduling decision: stage 1 rejections and stage 2 scores",
+		Short: "Explain where a job was routed: who was skipped and how the rest scored",
 		Args:  args(1, "<job_id|decision_id>"),
 		RunE: func(cmd *cobra.Command, argv []string) error {
 			e, err := a.open(cmd.Context())
@@ -45,11 +47,12 @@ func whyCmd(a *app) *cobra.Command {
 			if asJSON {
 				return writeJSON(cmd.OutOrStdout(), doc)
 			}
+			pal := palette{on: colorEnabled(cmd.OutOrStdout(), a.env.Getenv)}
 			for i, d := range doc.Decisions {
 				if i > 0 {
 					_, _ = fmt.Fprintln(cmd.OutOrStdout())
 				}
-				renderWhy(cmd.OutOrStdout(), doc.Job, d)
+				renderWhy(cmd.OutOrStdout(), doc.Job, d, pal)
 			}
 			return nil
 		},
@@ -96,51 +99,90 @@ func loadWhy(cmd *cobra.Command, r *ledger.Tx, id string, all bool) (whyDoc, err
 	return doc, nil
 }
 
-func renderWhy(w io.Writer, job whyJob, d scheduler.Decision) {
-	p := func(format string, args ...any) { _, _ = fmt.Fprintf(w, format, args...) }
-	p("Decision: %s (%s)\n", d.DecisionID, d.Trigger)
-	p("Job:      %s (%s, role=%s, min_tier=%d)\n", job.ID, job.Name, d.Role, d.MinQualityTier)
-	p("Profile:  %s (Q=%.2f, E=%.2f, S=%.2f, L=%.2f)\n", d.Profile, d.Weights.Quality, d.Weights.Expiry, d.Weights.Scarcity, d.Weights.Latency)
-	if d.ChosenProvider == "" {
-		p("Chosen:   none (WAITING_QUOTA)\n")
-	}
-	for _, c := range d.Candidates {
-		if c.Status == scheduler.StatusSelected {
-			p("Chosen:   %s (score %.3f)\n", c.Provider, c.Score)
-		}
-	}
-	p("\nCandidates evaluated:\n")
-	for i, c := range d.Candidates {
-		if c.Status == scheduler.StatusRejected {
-			p("  %d. %-18s REJECTED  %s\n", i+1, c.Provider, strings.Join(c.Rejections, "; "))
-			continue
-		}
-		p("  %d. %-18s %-9s score=%.3f\n", i+1, c.Provider, strings.ToUpper(c.Status), c.Score)
-		f, x := c.Features, c.Weighted
-		p("     Q=%.2f(%.3f) E=%.2f(%.3f) S=%.2f(%.3f) L=%.2f(%.3f) order=%+.3f prefer=%+.3f degraded=%+.3f learn=%+.3f\n",
-			f.Quality, x.Quality, f.Expiry, x.Expiry, f.Scarcity, x.Scarcity, f.Latency, x.Latency, c.OrderBonus, c.PreferBonus, -c.DegradedPenalty, c.LearnDelta)
-		p("     %s; slots %d/%d\n", windowNotes(c, d), c.ActiveJobs, c.MaxConcurrent)
-	}
-	p("\nSummary: %s\n", d.Summary)
+var triggerWords = map[string]string{
+	scheduler.TriggerInitial:         "first dispatch",
+	scheduler.TriggerFailover:        "failover",
+	scheduler.TriggerRetryAfterReset: "retry after reset",
+	scheduler.TriggerDryRun:          "dry run",
 }
+
+func renderWhy(w io.Writer, job whyJob, d scheduler.Decision, pal palette) {
+	var b strings.Builder
+	sep := pal.paint(dim, " · ")
+	fmt.Fprintf(&b, "%s  %s%s%s%srole %s (min quality %d)\n", pal.paint(bold, "why"), clean(job.ID), sep, clean(job.Name), sep, clean(d.Role), d.MinQualityTier)
+	fmt.Fprintf(&b, "decision %s%s%s\n", clean(d.DecisionID), sep, cmp.Or(triggerWords[d.Trigger], clean(d.Trigger)))
+	fmt.Fprintf(&b, "profile %s %s\n", pal.paint(cyan, clean(d.Profile)),
+		pal.paint(dim, fmt.Sprintf("quality %.2f · expiring %.2f · scarcity %.2f · speed %.2f", d.Weights.Quality, d.Weights.Expiry, d.Weights.Scarcity, d.Weights.Latency)))
+	width := 0
+	for _, c := range d.Candidates {
+		width = max(width, len(c.Provider))
+	}
+	b.WriteString("\n")
+	for _, c := range d.Candidates {
+		name := fmt.Sprintf("%-*s", width, clean(c.Provider))
+		switch c.Status {
+		case scheduler.StatusRejected:
+			fmt.Fprintf(&b, " %s %s  %s  %s\n", pal.paint(red, "✗"), pal.paint(dim, name), pal.paint(dim, "skipped "), pal.paint(dim, clean(strings.Join(c.Rejections, "; "))))
+			continue
+		case scheduler.StatusSelected:
+			fmt.Fprintf(&b, " %s %s  %s  score %.3f\n", pal.paint(green, "✓"), pal.paint(bold, name), pal.paint(green, "picked  "), c.Score)
+		default:
+			fmt.Fprintf(&b, " %s %s  %s  score %.3f\n", pal.paint(yellow, "•"), name, pal.paint(yellow, "eligible"), c.Score)
+		}
+		f, x := c.Features, c.Weighted
+		for _, row := range []struct {
+			name          string
+			value, scored float64
+			weight        float64
+			note          string
+		}{
+			{"quality", f.Quality, x.Quality, d.Weights.Quality, ""},
+			{"expiring", f.Expiry, x.Expiry, d.Weights.Expiry, map[bool]string{true: "usage unknown, neutral"}[c.ExpiryNeutral]},
+			{"scarcity", f.Scarcity, x.Scarcity, d.Weights.Scarcity, ""},
+			{"speed", f.Latency, x.Latency, d.Weights.Latency, ""},
+		} {
+			n := min(factorWidth, int(math.Round(row.value*factorWidth)))
+			fmt.Fprintf(&b, "     %-9s %s%s %.2f × %.2f = %.3f", row.name, pal.paint(cyan, strings.Repeat("█", n)), pal.paint(dim, strings.Repeat("░", factorWidth-n)), row.value, row.weight, row.scored)
+			if row.note != "" {
+				fmt.Fprintf(&b, "  %s", pal.paint(dim, row.note))
+			}
+			b.WriteString("\n")
+		}
+		var extras []string
+		for _, e := range []struct {
+			name string
+			v    float64
+		}{{"order", c.OrderBonus}, {"prefer", c.PreferBonus}, {"near limit", -c.DegradedPenalty}, {"learned", c.LearnDelta}} {
+			if e.v != 0 {
+				extras = append(extras, fmt.Sprintf("%s %+.3f", e.name, e.v))
+			}
+		}
+		if len(extras) > 0 {
+			fmt.Fprintf(&b, "     %-9s %s\n", "bonus", strings.Join(extras, ", "))
+		}
+		fmt.Fprintf(&b, "     %-9s %s\n", "usage", pal.paint(dim, windowNotes(c, d)+fmt.Sprintf(" · %d/%d jobs", c.ActiveJobs, c.MaxConcurrent)))
+	}
+	fmt.Fprintf(&b, "\n %s %s\n", pal.paint(bold, "→"), clean(d.Summary))
+	fmt.Fprintf(&b, " %s\n", pal.paint(dim, "how routing works: hiraishin help routing"))
+	_, _ = io.WriteString(w, b.String())
+}
+
+const factorWidth = 16
 
 func windowNotes(c scheduler.Candidate, d scheduler.Decision) string {
 	var parts []string
 	for _, w := range c.Windows {
-		s := fmt.Sprintf("window %s: %s used", w.Name, percent(w.UsedPct))
+		s := fmt.Sprintf("%s %s", clean(w.Name), percent(w.UsedPct))
 		if !w.ResetsAt.IsZero() {
-			s += ", resets in " + duration(w.ResetsAt.Sub(d.CreatedAt))
+			s += " resets " + duration(w.ResetsAt.Sub(d.CreatedAt))
 		}
-		if w.Confidence != "" {
-			s += " (" + w.Confidence + ")"
+		if w.Confidence != "" && w.Confidence != ledger.ConfidenceExact {
+			s += " (" + clean(w.Confidence) + ")"
 		}
 		parts = append(parts, s)
-	}
-	if c.ExpiryNeutral {
-		parts = append(parts, "expiry neutral 0.50 (window usage unknown)")
 	}
 	if len(parts) == 0 {
 		return "no windows configured"
 	}
-	return strings.Join(parts, "; ")
+	return strings.Join(parts, ", ")
 }

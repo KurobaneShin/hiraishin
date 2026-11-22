@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -45,6 +46,15 @@ const (
 	yellow = "33"
 	cyan   = "36"
 )
+
+func clean(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+			return '?'
+		}
+		return r
+	}, s)
+}
 
 type palette struct{ on bool }
 
