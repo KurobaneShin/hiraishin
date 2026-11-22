@@ -86,6 +86,18 @@ type PreferRow struct {
 	ExpiresAt  time.Time
 }
 
+type LearningRow struct {
+	ProviderID       string
+	Role             string
+	Samples          int
+	CompletedOK      int
+	AvgReviewRounds  float64
+	AvgBuildFailures float64
+	AvgDurationMin   float64
+	EWMAQuality      float64
+	UpdatedAt        time.Time
+}
+
 type EventRow struct {
 	Seq        int64
 	ID         string
@@ -350,4 +362,32 @@ func (t *Tx) JobEvents(ctx context.Context, jobID string) ([]EventRow, error) {
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+func (t *Tx) LearningStats(ctx context.Context, role string) ([]LearningRow, error) {
+	rows, err := t.q.QueryContext(ctx, `SELECT provider_id, role, samples, completed_ok, avg_review_rounds, avg_build_failures, avg_duration_min, ewma_quality, updated_at
+		FROM learning_stats WHERE ? = '' OR role = ? ORDER BY role, provider_id`, role, role)
+	if err != nil {
+		return nil, fmt.Errorf("query learning stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []LearningRow
+	for rows.Next() {
+		var r LearningRow
+		var updated sql.NullString
+		if err := rows.Scan(&r.ProviderID, &r.Role, &r.Samples, &r.CompletedOK, &r.AvgReviewRounds, &r.AvgBuildFailures, &r.AvgDurationMin, &r.EWMAQuality, &updated); err != nil {
+			return nil, fmt.Errorf("scan learning stats: %w", err)
+		}
+		r.UpdatedAt = parseTime(updated)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (t *Tx) LearningFrozen(ctx context.Context) (bool, error) {
+	var n int
+	if err := t.q.QueryRowContext(ctx, `SELECT COUNT(*) FROM runtime_state WHERE key = 'learning_frozen'`).Scan(&n); err != nil {
+		return false, fmt.Errorf("load learning freeze: %w", err)
+	}
+	return n > 0, nil
 }

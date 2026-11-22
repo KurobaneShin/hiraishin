@@ -121,9 +121,14 @@ func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, t
 	for i, p := range prefRows {
 		prefers[i] = scheduler.Prefer{ProviderID: p.ProviderID, Role: p.Role}
 	}
+	learned, err := tx.LearningStats(ctx, job.Role)
+	if err != nil {
+		return scheduler.Decision{}, ledger.Event{}, err
+	}
 	d, err := scheduler.Select(scheduler.Request{
 		Job:     scheduler.Job{ID: job.ID, Role: job.Role, PinnedProvider: job.PinnedProvider, Exclude: exclude},
 		Trigger: trigger, Now: e.Now(), Config: e.Cfg, RuntimeProfile: profile, Prefers: prefers, Providers: providers,
+		LearnDeltas: scheduler.LearnDeltas(e.Cfg.Learning, learned),
 	})
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err
@@ -143,6 +148,22 @@ func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, t
 		EarliestResetAt: d.EarliestResetAt, BlockedProviders: d.BlockedProviders,
 	}}
 	return d, ev, nil
+}
+
+func (e *Engine) OutcomeEvent(ctx context.Context, tx *ledger.Tx, providerID, role, jobID, source string, o scheduler.Outcome) (ledger.Event, error) {
+	rows, err := tx.LearningStats(ctx, role)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	frozen, err := tx.LearningFrozen(ctx)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	c := e.Cfg.Learning
+	return ledger.Event{ProviderID: providerID, JobID: jobID, Source: source, Payload: ledger.OutcomeRecorded{
+		Role: role, Success: o.Success, ReviewRounds: o.ReviewRounds, BuildFailures: o.BuildFailures, DurationMin: o.DurationMin,
+		Quality: scheduler.OutcomeQuality(c, o, scheduler.RoleDurationMin(rows)), Alpha: c.EWMAAlpha, Frozen: frozen || c.Frozen,
+	}}, nil
 }
 
 func DecisionFromRow(row ledger.DecisionRow) (scheduler.Decision, error) {

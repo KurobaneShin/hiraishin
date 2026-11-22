@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -267,5 +268,86 @@ func TestLatestAttemptsOnePerJobAndLastSeq(t *testing.T) {
 	queue(t, l, "job_c")
 	if after, _ := l.Reader().LastSeq(ctx); after != before+1 {
 		t.Errorf("seq %d -> %d", before, after)
+	}
+}
+
+func outcome(provider, role string, quality float64, frozen bool) Event {
+	return Event{ProviderID: provider, Source: SourceCLI, Payload: OutcomeRecorded{Role: role, Success: quality > 0.5, ReviewRounds: 2, BuildFailures: 1, DurationMin: 30, Quality: quality, Alpha: 0.5, Frozen: frozen}}
+}
+
+func learningStats(t *testing.T, l *Ledger, role string) []LearningRow {
+	t.Helper()
+	rows, err := l.Reader().LearningStats(context.Background(), role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+func TestOutcomesUpdateLearningStatsAsEWMA(t *testing.T) {
+	l, _ := open(t)
+	mustAppend(t, l, outcome("kimi", "gameplay", 0.8, false), outcome("kimi", "gameplay", 0.4, false), outcome("agy", "gameplay", 0.9, false), outcome("kimi", "docs", 0.1, false))
+	rows := learningStats(t, l, "gameplay")
+	if len(rows) != 2 || rows[0].ProviderID != "agy" || rows[1].ProviderID != "kimi" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	k := rows[1]
+	if k.Role != "gameplay" || k.Samples != 2 || k.CompletedOK != 1 || math.Abs(k.EWMAQuality-0.6) > 1e-9 || k.AvgReviewRounds != 2 || k.AvgBuildFailures != 1 || k.AvgDurationMin != 30 {
+		t.Fatalf("kimi = %+v", k)
+	}
+	if all := learningStats(t, l, ""); len(all) != 3 {
+		t.Fatalf("all roles = %+v", all)
+	}
+}
+
+func TestOutcomeWithoutDurationKeepsDurationAverage(t *testing.T) {
+	l, _ := open(t)
+	first := outcome("kimi", "gameplay", 0.5, false)
+	p := first.Payload.(OutcomeRecorded)
+	p.DurationMin = 0
+	first.Payload = p
+	mustAppend(t, l, first, outcome("kimi", "gameplay", 0.5, false), first)
+	if k := learningStats(t, l, "gameplay")[0]; k.AvgDurationMin != 30 || k.Samples != 3 {
+		t.Fatalf("kimi = %+v", k)
+	}
+}
+
+func TestFrozenOutcomeIsLoggedButLeavesStatsUntouched(t *testing.T) {
+	l, _ := open(t)
+	mustAppend(t, l, outcome("kimi", "gameplay", 0.8, false))
+	before := learningStats(t, l, "gameplay")
+	mustAppend(t, l, outcome("kimi", "gameplay", 0.0, true), outcome("agy", "gameplay", 0.0, true))
+	if after := learningStats(t, l, "gameplay"); len(after) != 1 || after[0] != before[0] {
+		t.Fatalf("frozen outcome changed stats: %+v -> %+v", before, after)
+	}
+	var n int
+	if err := l.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM events WHERE kind = ?`, string(KindOutcomeRecorded)).Scan(&n); err != nil || n != 3 {
+		t.Fatalf("outcome events = %d, %v", n, err)
+	}
+}
+
+func TestLearnFreezeUnfreezeAndReset(t *testing.T) {
+	l, _ := open(t)
+	frozen := func() bool {
+		f, err := l.Reader().LearningFrozen(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	if frozen() {
+		t.Fatal("frozen before any freeze")
+	}
+	mustAppend(t, l, Event{Source: SourceCLI, Payload: LearnFrozen{By: "cli"}})
+	if !frozen() {
+		t.Fatal("not frozen after learning.frozen")
+	}
+	mustAppend(t, l, Event{Source: SourceCLI, Payload: LearnUnfrozen{By: "cli"}})
+	if frozen() {
+		t.Fatal("still frozen after learning.unfrozen")
+	}
+	mustAppend(t, l, outcome("kimi", "gameplay", 0.8, false), outcome("agy", "docs", 0.8, false), Event{Source: SourceCLI, Payload: LearnReset{By: "cli"}})
+	if rows := learningStats(t, l, ""); len(rows) != 0 {
+		t.Fatalf("stats after reset = %+v", rows)
 	}
 }

@@ -32,6 +32,9 @@ const routingHelp = `How hiraishin decides which agent runs a job.
      +0.03 max  position in allowed_providers (first gets the most)
      +0.15      hiraishin prefer <provider>
      -0.08      near limit: a window at or above warn_used_pct (default 85%)
+     ±0.12 max  learned from past outcomes of this provider on this role,
+                once it has min_samples of them ([learning], hiraishin learn status);
+                never lets a filtered provider back in
 
 4. Run and watch
    The agent runs in the job's git worktree. hiraishin watch reads its output.
