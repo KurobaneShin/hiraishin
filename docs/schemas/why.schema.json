@@ -138,6 +138,13 @@
             "type": "string"
           }
         },
+        "full_providers": {
+          "description": "Providers rejected only because every slot is taken; the job waits for one of them to finish a job.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"

@@ -116,6 +116,7 @@ type Decision struct {
 	Summary          string         `json:"summary"`
 	EarliestResetAt  time.Time      `json:"earliest_reset_at,omitzero"`
 	BlockedProviders []string       `json:"blocked_providers"`
+	FullProviders    []string       `json:"full_providers,omitempty"`
 	CreatedAt        time.Time      `json:"created_at"`
 }
 
@@ -139,6 +140,9 @@ func Select(req Request) (Decision, error) {
 	for _, p := range orderProviders(req.Providers, l.rank) {
 		c := evaluate(req, role, roleName, pin, weights, p, l)
 		d.Candidates = append(d.Candidates, c)
+		if len(c.Rejections) == 1 && p.ActiveJobs >= p.Config.MaxConcurrent {
+			d.FullProviders = append(d.FullProviders, p.ID)
+		}
 	}
 	best := -1
 	for i, c := range d.Candidates {
@@ -154,6 +158,7 @@ func Select(req Request) (Decision, error) {
 		d.ChosenProvider = d.Candidates[best].Provider
 	} else {
 		d.EarliestResetAt, d.BlockedProviders = blocked(req, l)
+		slices.Sort(d.FullProviders)
 	}
 	d.Summary = summarize(d)
 	return d, nil
@@ -352,6 +357,9 @@ func blocked(req Request, l lookup) (time.Time, []string) {
 }
 
 func summarize(d Decision) string {
+	if d.ChosenProvider == "" && len(d.FullProviders) > 0 {
+		return fmt.Sprintf("No free slot for role %s: %s full; the job starts when one of their jobs finishes.", d.Role, strings.Join(d.FullProviders, ", "))
+	}
 	if d.ChosenProvider == "" {
 		s := fmt.Sprintf("No eligible provider for role %s: %d candidates rejected.", d.Role, len(d.Candidates))
 		if !d.EarliestResetAt.IsZero() {

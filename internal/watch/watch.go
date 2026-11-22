@@ -346,7 +346,7 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 	})
 	if err != nil || d.ChosenProvider == "" {
 		if err == nil && job.State != ledger.JobWaitingQuotaState {
-			w.log.Warn("no eligible provider, job waiting for quota", "job", job.ID, "earliest_reset", d.EarliestResetAt)
+			w.log.Warn("no eligible provider, job waiting", "job", job.ID, "full", d.FullProviders, "earliest_reset", d.EarliestResetAt)
 		}
 		return err
 	}

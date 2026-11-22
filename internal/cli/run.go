@@ -133,7 +133,11 @@ func (a *app) run(cmd *cobra.Command, o runOpts) error {
 	}
 	out := cmd.OutOrStdout()
 	if d.ChosenProvider == "" {
-		_, err = fmt.Fprintf(out, "Job %s is WAITING_QUOTA. %s\nhiraishin watch dispatches it when a provider resets.\n", job.ID, d.Summary)
+		next := "a provider resets"
+		if len(d.FullProviders) > 0 {
+			next = "a slot frees"
+		}
+		_, err = fmt.Fprintf(out, "Job %s waits (state WAITING_QUOTA). %s\nhiraishin watch dispatches it when %s.\n", job.ID, d.Summary, next)
 		return err
 	}
 	prompt, err := dispatch.InitialPrompt(dispatch.PromptData{JobID: job.ID, JobName: job.Name, Worktree: wt, BriefPath: brief, ReportPath: report})

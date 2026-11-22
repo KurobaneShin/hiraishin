@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -259,5 +260,24 @@ func TestExpiryFallsBackToTheShortestWindowWithAKnownReset(t *testing.T) {
 	want := 0.14 * (1 - 72.0/168) * expiryGain
 	if k.ExpiryNeutral || !near(k.Features.Expiry, want) {
 		t.Fatalf("expiry = %v neutral = %v, want %v from the weekly window", k.Features.Expiry, k.ExpiryNeutral, want)
+	}
+}
+
+func TestFullSlotsWaitForAFreeSlotNotAReset(t *testing.T) {
+	cfg := baseConfig()
+	ps := snapshot(cfg, func(m map[string]*Provider) {
+		for _, p := range m {
+			p.ActiveJobs = p.Config.MaxConcurrent
+		}
+	})
+	d, err := Select(Request{Job: Job{ID: "j", Role: "gameplay"}, Trigger: TriggerInitial, Now: now, Config: cfg, Providers: ps})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ChosenProvider != "" || !slices.Equal(d.FullProviders, []string{"agy", "kimi", "sonnet"}) {
+		t.Fatalf("full = %v decision = %+v", d.FullProviders, d)
+	}
+	if !strings.Contains(d.Summary, "No free slot") || strings.Contains(d.Summary, "reset") {
+		t.Errorf("summary = %q", d.Summary)
 	}
 }
