@@ -121,9 +121,11 @@ func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, t
 	for i, p := range prefRows {
 		prefers[i] = scheduler.Prefer{ProviderID: p.ProviderID, Role: p.Role}
 	}
+	floor, floorReason := e.tierFloor(ctx, tx, job)
 	d, err := scheduler.Select(scheduler.Request{
 		Job:     scheduler.Job{ID: job.ID, Role: job.Role, PinnedProvider: job.PinnedProvider, Exclude: exclude},
 		Trigger: trigger, Now: e.Now(), Config: e.Cfg, RuntimeProfile: profile, Prefers: prefers, Providers: providers,
+		MinQualityTier: floor, MinQualityTierReason: floorReason,
 	})
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err

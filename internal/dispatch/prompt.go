@@ -21,11 +21,15 @@ type PromptData struct {
 	Reason       string
 	Checkpoint   Checkpoint
 	Report       string
+	Enrichment   string
 }
 
 var initialPrompt = template.Must(template.New("initial").Parse(`You are working on job {{.JobName}} ({{.JobID}}) in the git worktree {{.Worktree}}.
 Read the brief at {{.BriefPath}} and follow it.
 Keep {{.ReportPath}} current with progress, decisions and open questions.
+{{- with .Enrichment}}
+
+{{.}}{{end}}
 `))
 
 var resumePrompt = template.Must(template.New("resume").Parse(`You are resuming job {{.JobName}} ({{.JobID}}) in the git worktree {{.Worktree}}.
@@ -47,7 +51,8 @@ HEAD: {{or .Checkpoint.Head "(no commits)"}}
 
 ## Report so far
 {{or .Report "(no report yet)"}}
-
+{{with .Enrichment}}
+{{.}}{{end}}
 Inspect the diff, continue the brief from this state, and keep the report current.
 `))
 

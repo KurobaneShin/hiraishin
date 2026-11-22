@@ -20,6 +20,7 @@ import (
 	"github.com/KurobaneShin/hiraishin/internal/engine"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/sensor"
+	"github.com/KurobaneShin/hiraishin/internal/stack/stacktest"
 )
 
 const cfgText = `
@@ -408,5 +409,63 @@ func TestFailoverPastTheWaitPointsTheNextAgentAtTheOldSession(t *testing.T) {
 	prompt, _ := os.ReadFile(filepath.Join(job.WorktreePath, "resume-prompt.txt"))
 	if !strings.Contains(string(prompt), "memory_read_session_observations (session_id sess-kimi, order desc)") {
 		t.Errorf("resume prompt lacks the ai-memory pointer:\n%s", prompt)
+	}
+}
+
+const kimiLimitMidSave = `mkdir -p store && echo "package store" > store/save.go
+echo '{"session_id":"sess-kimi"}'
+echo "429 You've reached your 5-hour usage limit" >&2
+exec sleep 30
+`
+
+const watchGraph = `{"nodes": [
+  {"id": "save", "label": "SaveAll", "community": 0, "community_name": "Persistence", "source_file": "store/save.go"},
+  {"id": "tick", "label": "Tick", "community": 1, "community_name": "Game loop", "source_file": "game/tick.go"}
+], "links": [{"source": "tick", "target": "save", "relation": "calls"}]}`
+
+func TestFailoverPromptCarriesStackContextAndRecordsTheOutcome(t *testing.T) {
+	mem := stacktest.NewMemory(t, `{"observations": [{"kind": "stop", "created_at": "2026-11-21T10:03:00Z", "body": "Stopped while writing store/save.go"}]}`)
+	stacktest.InstallQMD(t, `[{"file": "qmd://orca/game/docs/save.md", "line": 3, "title": "Saving", "score": 0.8, "snippet": "Saves are append-only."}]`)
+	cfg := cfgText + fmt.Sprintf("[integrations.ai_memory]\nenabled = true\nurl = %q\nrecord_outcomes = true\n[integrations.qmd]\nenabled = true\ncollections = [\"orca\"]\n[integrations.graphify]\nenabled = true\n", mem.URL)
+	f := setupWith(t, cfg, map[string]string{
+		"kimi": kimiLimitMidSave,
+		"agy":  `printf '%s' "${@: -1}" > resume-prompt.txt`,
+	})
+	job := f.submit("default")
+	stacktest.WriteGraph(t, job.WorktreePath, watchGraph)
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	prompt, _ := os.ReadFile(filepath.Join(job.WorktreePath, "resume-prompt.txt"))
+	for _, want := range []string{
+		`<previous-session-recovery session="sess-kimi">`, "stop: Stopped while writing store/save.go",
+		"<related-docs>", "qmd://orca/game/docs/save.md:3 (Saving, score 0.80)",
+		"<codebase-subgraph>", "Tick (game/tick.go) calls SaveAll (store/save.go)",
+		"Inspect the diff, continue the brief",
+	} {
+		if !strings.Contains(string(prompt), want) {
+			t.Errorf("resume prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	var page *stacktest.Call
+	for _, c := range mem.Calls() {
+		if c.Tool == "memory_write_page" {
+			page = &c
+		}
+	}
+	if page == nil {
+		t.Fatalf("no outcome page written: %+v", mem.Calls())
+	}
+	path, _ := page.Args["path"].(string)
+	body, _ := page.Args["body"].(string)
+	if !strings.HasPrefix(path, "hiraishin/outcomes/") || !strings.HasSuffix(path, "-persist-all-"+job.ID+".md") || page.Args["tier"] != "episodic" || page.Args["kind"] != "hiraishin-outcome" {
+		t.Errorf("outcome page args = %+v", page.Args)
+	}
+	for _, want := range []string{"# Outcome: persist-all\n", "- Result: COMPLETED", "1. kimi: limit_hit", "2. agy: completed", "- failover: Picked agy"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("outcome body missing %q:\n%s", want, body)
+		}
+	}
+	tags := fmt.Sprint(page.Args["tags"])
+	if !strings.Contains(tags, "provider:kimi") || !strings.Contains(tags, "provider:agy") || !strings.Contains(tags, "role:default") {
+		t.Errorf("tags = %s", tags)
 	}
 }

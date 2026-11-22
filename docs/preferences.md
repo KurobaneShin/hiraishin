@@ -189,7 +189,7 @@ resume_prompt_template = ""
 # ---------------------------------------------------------------------------
 [integrations.ai_memory]
 enabled = false
-transport = "http"             # "http" | "stdio"
+transport = "http"             # only "http" is supported
 url = "http://127.0.0.1:49375/mcp"
 record_outcomes = true         # Write job outcome summaries as episodic pages
 
