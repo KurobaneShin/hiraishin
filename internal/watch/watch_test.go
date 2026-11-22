@@ -622,3 +622,11 @@ func TestFailoverPromptCarriesStackContextAndRecordsTheOutcome(t *testing.T) {
 		t.Errorf("tags = %s", tags)
 	}
 }
+
+func TestWindowResetHonoursTheFixedResetCron(t *testing.T) {
+	p := config.Provider{Windows: []config.Window{{Name: "daily", Kind: "fixed_reset", DurationHours: 24, FixedResetCron: "0 3 * * *", FixedResetTZ: "UTC"}}}
+	now := time.Date(2026, 11, 22, 1, 0, 0, 0, time.UTC)
+	if _, at := windowReset(p, "daily", sensor.Signal{}, now); !at.Equal(time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)) {
+		t.Fatalf("reset = %v, want 03:00 UTC from the cron", at)
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/KurobaneShin/hiraishin/internal/config"
 	"github.com/KurobaneShin/hiraishin/internal/dispatch"
 	"github.com/KurobaneShin/hiraishin/internal/engine"
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 	"github.com/KurobaneShin/hiraishin/internal/sensor"
@@ -271,6 +272,11 @@ func windowReset(p config.Provider, name string, sig sensor.Signal, now time.Tim
 		if win.Name == name {
 			if !sig.ResetAt.IsZero() {
 				return win.Kind, sig.ResetAt
+			}
+			if win.Kind == "fixed_reset" && win.FixedResetCron != "" {
+				if at, err := forecast.NextReset(win.FixedResetCron, win.FixedResetTZ, now); err == nil {
+					return win.Kind, at
+				}
 			}
 			if win.Kind == "fixed_reset" && win.FixedResetTZ != "" {
 				if at, ok := sensor.NextMidnightIn(win.FixedResetTZ, now); ok {
