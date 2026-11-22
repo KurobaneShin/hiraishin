@@ -14,6 +14,7 @@ import (
 
 	"github.com/KurobaneShin/hiraishin/internal/config"
 	"github.com/KurobaneShin/hiraishin/internal/engine"
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 )
@@ -95,7 +96,7 @@ func (h *harness) decide(jobID string) scheduler.Decision {
 		evs := []ledger.Event{{JobID: jobID, Source: ledger.SourceCLI, Payload: ledger.JobQueued{Name: "persist-all", Role: "gameplay", WorktreePath: "/wt", Branch: "b", BriefPath: "/b.md", TerminalAdapter: "process"}}}
 		var dec ledger.Event
 		var err error
-		d, dec, err = e.Decide(ctx, tx, ledger.JobRow{ID: jobID, Role: "gameplay"}, scheduler.TriggerDryRun, nil, engine.TierFloor{})
+		d, dec, err = e.Decide(ctx, tx, ledger.JobRow{ID: jobID, Role: "gameplay"}, scheduler.TriggerDryRun, nil, engine.TierFloor{}, e.Outlook(ctx))
 		return append(evs, dec), err
 	})
 	if err != nil {
@@ -199,13 +200,46 @@ func TestRenderStatusGroupsPoolsAndColorsByThreshold(t *testing.T) {
 	if n := strings.Count(text, "90%"); n != 1 {
 		t.Errorf("pool windows must print once, got %d:\n%s", n, text)
 	}
-	for _, want := range []string{"zai", "glm-a", "glm-b", "degraded", "usage endpoint: HTTP 500", "agy", "?", "estimated", "2 near limit"} {
+	for _, want := range []string{"zai", "glm-a", "glm-b", "near limit", "usage endpoint: HTTP 500", "agy", "?", "estimated", "2 near limit"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q:\n%s", want, text)
 		}
 	}
 	if !strings.Contains(color.String(), "\x1b[33m") || !strings.Contains(color.String(), "\x1b[32m") {
 		t.Errorf("want yellow for 90%% and green for 10%%:\n%q", color.String())
+	}
+}
+
+func TestRenderStatusExplainsAWindowAtItsLimit(t *testing.T) {
+	sec := func(d time.Duration) *int64 { s := int64(d.Seconds()); return &s }
+	short, full, mid := 3.0, 100.0, 36.0
+	doc := statusDoc{Profile: "balanced", Providers: []statusProvider{
+		{ID: "glm", Pool: "zai", State: ledger.StateExhausted, MaxConcurrent: 2, Windows: []statusWindow{
+			{Name: "5h", UsedPct: &short, ResetsInSeconds: sec(2 * time.Hour), Confidence: "exact", Forecast: &forecast.Forecast{PctPerHour: 1.53, PerishableWasteRisk: 0.96}},
+			{Name: "weekly", UsedPct: &full, ResetsInSeconds: sec(18 * time.Hour), Confidence: "exact", Forecast: &forecast.Forecast{PctPerHour: 0.48, TimeToEmptySeconds: sec(0), EmptiesBeforeReset: true}},
+		}},
+		{ID: "claude", Pool: "max", State: ledger.StateAvailable, Windows: []statusWindow{
+			{Name: "5h", UsedPct: &mid, ResetsInSeconds: sec(90 * time.Minute), Confidence: "exact", Forecast: &forecast.Forecast{PctPerHour: 9.2, PerishableWasteRisk: 0.78}},
+		}},
+		{ID: "fresh", Pool: "reset", State: ledger.StateAvailable, Windows: []statusWindow{
+			{Name: "5h", UsedPct: &short, ResetsInSeconds: sec(5 * time.Hour), Confidence: "exact"},
+		}},
+		{ID: "off", Pool: "off", State: "DISABLED"},
+	}}
+	var out bytes.Buffer
+	if err := renderStatus(&out, doc, 85, 98, palette{}); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, want := range []string{"limit reached", "blocked until weekly resets", "~50% left unused at reset", "no burn data yet", "1 limit reached", "1 disabled"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q:\n%s", want, text)
+		}
+	}
+	for _, bad := range []string{"waste risk", "runs out", "empty in", "now", "degraded", "0.48", "1.53", "unavailable"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("must not show %q:\n%s", bad, text)
+		}
 	}
 }
 
@@ -289,12 +323,15 @@ func TestForecastRunningOutBeforeResetShowsInStatusWithoutDegrading(t *testing.T
 		t.Fatalf("states = %v, want both AVAILABLE below warn_used_pct", states)
 	}
 	text := h.run(0, "status", "--no-sensors")
-	if strings.Contains(text, "degraded") || !strings.Contains(text, "empty in 2h") || !strings.Contains(text, "25%/h") {
+	if strings.Contains(text, "near limit") || !strings.Contains(text, "runs out in 2h00m, before reset") || !strings.Contains(text, "25%/h") {
 		t.Errorf("status text lacks the forecast:\n%s", text)
 	}
 	d := h.decide("job_f")
 	if k := candidateOf(t, d, "kimi"); k.State != ledger.StateAvailable || k.DegradedPenalty != 0 {
 		t.Errorf("kimi candidate state = %s penalty = %v, want AVAILABLE without penalty", k.State, k.DegradedPenalty)
+	}
+	if k := candidateOf(t, d, "kimi"); k.Windows[0].Forecast == nil || !k.Windows[0].Forecast.EmptiesBeforeReset {
+		t.Errorf("the decision did not see the kimi forecast: %+v", k.Windows)
 	}
 	if a := candidateOf(t, d, "agy"); a.State != ledger.StateAvailable {
 		t.Errorf("agy candidate state = %s, want AVAILABLE", a.State)

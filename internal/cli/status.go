@@ -213,22 +213,19 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 			if w.Confidence != "" && w.Confidence != ledger.ConfidenceExact {
 				fmt.Fprintf(&b, "  %s", pal.paint(dim, clean(w.Confidence)))
 			}
-			if f := w.Forecast; f != nil {
-				fmt.Fprintf(&b, "  %s", pal.paint(dim, fmt.Sprintf("burn %.3g%%/h", f.PctPerHour)))
-				switch {
-				case f.EmptiesBeforeReset:
-					fmt.Fprintf(&b, "  %s", pal.paint(yellow, "empty in "+duration(time.Duration(*f.TimeToEmptySeconds)*time.Second)+" before reset"))
-				case f.PerishableWasteRisk > 0:
-					fmt.Fprintf(&b, "  %s", pal.paint(dim, fmt.Sprintf("waste risk %.0f%%", 100*f.PerishableWasteRisk)))
-				}
-			}
+			b.WriteString(windowOutlook(w, windows, pal))
 			b.WriteString("\n")
 		}
 		for _, p := range group {
 			dot, color := stateStyle(p.State)
-			fmt.Fprintf(&b, "   %s %-*s  %s  %s", pal.paint(color, dot), nameWidth, clean(p.ID), pal.paint(color, fmt.Sprintf("%-11s", strings.ToLower(strings.ReplaceAll(clean(p.State), "_", " ")))), pal.paint(dim, jobsLabel(p)))
+			label := stateLabel(p)
+			fmt.Fprintf(&b, "   %s %-*s  %s  %s", pal.paint(color, dot), nameWidth, clean(p.ID), pal.paint(color, fmt.Sprintf("%-13s", label)), pal.paint(dim, jobsLabel(p)))
 			if !p.CooldownUntil.IsZero() {
-				fmt.Fprintf(&b, "  %s", pal.paint(yellow, "cooldown until "+p.CooldownUntil.Local().Format("15:04")))
+				until := "until " + p.CooldownUntil.Local().Format("15:04")
+				if label != "cooldown" {
+					until = "cooldown " + until
+				}
+				fmt.Fprintf(&b, "  %s", pal.paint(yellow, until))
 			}
 			b.WriteString("\n")
 			if p.LastError != "" {
@@ -248,6 +245,55 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 	fmt.Fprintf(&b, "\n %s\n", pal.paint(dim, "jobs = running/max at once per provider · how routing works: hiraishin help routing"))
 	_, err := io.WriteString(out, b.String())
 	return err
+}
+
+func windowOutlook(w statusWindow, all []statusWindow, pal palette) string {
+	if atLimit(w) {
+		return "  " + pal.paint(red, "limit reached")
+	}
+	for _, o := range all {
+		if o.Name != w.Name && atLimit(o) && !resetsFirst(o, w) {
+			return "  " + pal.paint(yellow, "blocked until "+clean(o.Name)+" resets")
+		}
+	}
+	f := w.Forecast
+	if f == nil {
+		if w.UsedPct == nil {
+			return ""
+		}
+		return "  " + pal.paint(dim, "no burn data yet")
+	}
+	out := "  " + pal.paint(dim, fmt.Sprintf("burn %.3g%%/h", f.PctPerHour))
+	switch {
+	case f.EmptiesBeforeReset && f.TimeToEmptySeconds != nil && *f.TimeToEmptySeconds > 0:
+		out += "  " + pal.paint(yellow, "runs out in "+duration(time.Duration(*f.TimeToEmptySeconds)*time.Second)+", before reset")
+	case f.EmptiesBeforeReset:
+		out += "  " + pal.paint(yellow, "runs out now")
+	case f.PerishableWasteRisk > 0 && w.UsedPct != nil:
+		if unused := (100 - *w.UsedPct) * f.PerishableWasteRisk; unused >= 0.5 {
+			out += "  " + pal.paint(dim, fmt.Sprintf("~%.0f%% left unused at reset", unused))
+		}
+	}
+	return out
+}
+
+func atLimit(w statusWindow) bool { return w.UsedPct != nil && *w.UsedPct >= 100 }
+
+func resetsFirst(a, b statusWindow) bool {
+	return a.ResetsInSeconds != nil && b.ResetsInSeconds != nil && *a.ResetsInSeconds < *b.ResetsInSeconds
+}
+
+func stateLabel(p statusProvider) string {
+	switch p.State {
+	case ledger.StateDegraded:
+		if !p.CooldownUntil.IsZero() {
+			return "cooldown"
+		}
+		return "near limit"
+	case ledger.StateExhausted:
+		return "limit reached"
+	}
+	return strings.ToLower(strings.ReplaceAll(clean(p.State), "_", " "))
 }
 
 func groupPools(providers []statusProvider) ([]string, map[string][]statusProvider, int) {
@@ -275,24 +321,30 @@ func poolWindows(group []statusProvider) (string, []statusWindow) {
 }
 
 func statusHeader(doc statusDoc, pal palette) string {
-	nearLimit, unavailable := 0, 0
+	counts, colors := map[string]int{}, map[string]string{}
 	for _, p := range doc.Providers {
-		switch p.State {
-		case ledger.StateAvailable:
-		case ledger.StateDegraded:
-			nearLimit++
-		default:
-			unavailable++
+		if p.State == ledger.StateAvailable {
+			continue
 		}
+		label := stateLabel(p)
+		counts[label]++
+		_, colors[label] = stateStyle(p.State)
 	}
+	labels := slices.SortedFunc(maps.Keys(counts), func(a, b string) int {
+		return cmp.Or(cmp.Compare(headerRank(a), headerRank(b)), cmp.Compare(a, b))
+	})
 	h := fmt.Sprintf("%s  profile %s %s %d providers", pal.paint(bold, "hiraishin"), pal.paint(cyan, clean(doc.Profile)), pal.paint(dim, "·"), len(doc.Providers))
-	if nearLimit > 0 {
-		h += fmt.Sprintf(" %s %s", pal.paint(dim, "·"), pal.paint(yellow, fmt.Sprintf("%d near limit", nearLimit)))
-	}
-	if unavailable > 0 {
-		h += fmt.Sprintf(" %s %s", pal.paint(dim, "·"), pal.paint(red, fmt.Sprintf("%d unavailable", unavailable)))
+	for _, label := range labels {
+		h += fmt.Sprintf(" %s %s", pal.paint(dim, "·"), pal.paint(colors[label], fmt.Sprintf("%d %s", counts[label], label)))
 	}
 	return h
+}
+
+func headerRank(label string) int {
+	if i := slices.Index([]string{"limit reached", "auth error", "unavailable", "near limit", "cooldown", "draining", "paused", "disabled"}, label); i >= 0 {
+		return i
+	}
+	return math.MaxInt
 }
 
 func bar(used *float64, width int, warn, reserve float64, pal palette) string {

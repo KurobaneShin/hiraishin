@@ -408,14 +408,14 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 		}
 	}
 	var d scheduler.Decision
-	floor := e.TierFloor(ctx, job)
+	floor, outlook := e.TierFloor(ctx, job), e.Outlook(ctx)
 	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
 		var dec ledger.Event
 		var err error
 		if waitForReset {
 			pinned := job
 			pinned.PinnedProvider = att.ProviderID
-			if d, dec, err = e.Decide(ctx, tx, pinned, trigger, nil, floor); err != nil {
+			if d, dec, err = e.Decide(ctx, tx, pinned, trigger, nil, floor, outlook); err != nil {
 				return nil, err
 			}
 			if d.ChosenProvider == "" {
@@ -431,7 +431,7 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 			if job.State == ledger.JobFailingOverState && att != nil && !job.NeverSwitch {
 				exclude = e.Cfg.PoolMembers(att.ProviderID)
 			}
-			if d, dec, err = e.Decide(ctx, tx, job, trigger, exclude, floor); err != nil {
+			if d, dec, err = e.Decide(ctx, tx, job, trigger, exclude, floor, outlook); err != nil {
 				return nil, err
 			}
 		}

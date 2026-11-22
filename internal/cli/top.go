@@ -244,11 +244,16 @@ func (m topModel) render() string {
 				mark = pal.paint(cyan, "›") + " "
 			}
 			dot, color := stateStyle(p.State)
+			label := stateLabel(p)
 			line := fmt.Sprintf(" %s%s %-*s  %s  %s", mark, pal.paint(color, dot), idWidth, clean(p.ID),
-				pal.paint(color, fmt.Sprintf("%-11s", strings.ToLower(strings.ReplaceAll(clean(p.State), "_", " ")))),
+				pal.paint(color, fmt.Sprintf("%-13s", label)),
 				pal.paint(dim, fmt.Sprintf("%d/%d jobs", p.ActiveJobs, p.MaxConcurrent)))
 			if p.CooldownUntil.After(m.clock) {
-				line += "  " + pal.paint(yellow, "cooldown "+duration(p.CooldownUntil.Sub(m.clock)))
+				left := "for " + duration(p.CooldownUntil.Sub(m.clock))
+				if label != "cooldown" {
+					left = "cooldown " + left
+				}
+				line += "  " + pal.paint(yellow, left)
 			}
 			body = append(body, line)
 			if p.LastError != "" {

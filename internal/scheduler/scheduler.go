@@ -103,6 +103,7 @@ type Candidate struct {
 	LearnDelta      float64   `json:"learn_delta"`
 	Score           float64   `json:"score"`
 	ExpiryNeutral   bool      `json:"expiry_neutral"`
+	ExpiryLimitedBy string    `json:"expiry_limited_by,omitempty"`
 	Windows         []Window  `json:"windows"`
 	ActiveJobs      int       `json:"active_jobs"`
 	MaxConcurrent   int       `json:"max_concurrent"`
@@ -227,6 +228,11 @@ func orderProviders(all []Provider, ranks map[string]int) []Provider {
 func EffectiveState(p Provider, warnPct float64, now time.Time) string {
 	switch p.State {
 	case ledger.StateAvailable, ledger.StateDegraded:
+		for _, w := range p.Windows {
+			if w.UsedPct != nil && *w.UsedPct >= 100 && (w.ResetsAt.IsZero() || w.ResetsAt.After(now)) {
+				return ledger.StateExhausted
+			}
+		}
 		if p.CooldownUntil.After(now) {
 			return ledger.StateDegraded
 		}
@@ -295,8 +301,8 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 		return c
 	}
 	c.Status = StatusEligible
-	f, neutral := features(p, req.Now)
-	c.Features, c.ExpiryNeutral = &f, neutral
+	f, neutral, limitedBy := features(p, req.Now)
+	c.Features, c.ExpiryNeutral, c.ExpiryLimitedBy = &f, neutral, limitedBy
 	c.Weighted = &Features{Quality: w.Quality * f.Quality, Expiry: w.Expiry * f.Expiry, Scarcity: w.Scarcity * f.Scarcity, Latency: w.Latency * f.Latency}
 	c.OrderBonus = OrderBonusMax * (1 - float64(rank)/float64(max(1, len(role.AllowedProviders)-1)))
 	if l.prefer[p.ID] {
@@ -312,15 +318,19 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 	return c
 }
 
-func features(p Provider, now time.Time) (Features, bool) {
+func features(p Provider, now time.Time) (Features, bool, string) {
 	f := Features{
 		Quality: float64(p.Config.QualityTier-1) / 4,
 		Latency: float64(p.Config.SpeedTier-1) / 4,
 	}
 	f.Expiry, f.Scarcity = NeutralExpiry, 1-float64(p.Config.ScarcityTier-1)/4
-	neutral := true
+	neutral, limitedBy := true, ""
 	if w, ok := shortestMeasured(p.Windows); ok {
-		rem := (100 - *w.UsedPct) / 100
+		left := 100 - *w.UsedPct
+		if room, by := roomBeyondPace(w, p.Windows, now); room < left {
+			left, limitedBy = room, by
+		}
+		rem := left / 100
 		frac := clamp(w.ResetsAt.Sub(now).Hours()/w.DurationHours, minTimeFrac, 1)
 		f.Expiry, neutral = clamp(rem*(1-frac)*expiryGain, 0, 1), false
 	}
@@ -330,7 +340,7 @@ func features(p Provider, now time.Time) (Features, bool) {
 			break
 		}
 	}
-	return f, neutral
+	return f, neutral, limitedBy
 }
 
 func shortestMeasured(ws []Window) (Window, bool) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/KurobaneShin/hiraishin/internal/config"
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 )
 
@@ -115,6 +116,9 @@ func TestStageOneGates(t *testing.T) {
 			m["kimi"].State = ledger.StateExhausted
 			setWindow(m["kimi"], "5h", 100, reset)
 		}, TriggerInitial, "kimi", "state=EXHAUSTED (window 5h resets 20:00 UTC)"},
+		{"window at 100%", func(m map[string]*Provider, _ *config.Config, _ *Job) {
+			setWindow(m["kimi"], "weekly", 100, reset)
+		}, TriggerInitial, "kimi", "state=EXHAUSTED (window weekly resets 20:00 UTC)"},
 		{"paused", func(m map[string]*Provider, _ *config.Config, _ *Job) { m["kimi"].State = ledger.StatePaused }, TriggerInitial, "kimi", "state=PAUSED"},
 		{"draining", func(m map[string]*Provider, _ *config.Config, _ *Job) { m["kimi"].State = ledger.StateDraining }, TriggerInitial, "kimi", "state=DRAINING"},
 		{"auth", func(m map[string]*Provider, _ *config.Config, _ *Job) { m["kimi"].State = ledger.StateAuthError }, TriggerInitial, "kimi", "state=AUTH_ERROR"},
@@ -329,6 +333,101 @@ func TestAttachForecastsSharesPoolTracesAndUsesTheFixedResetCron(t *testing.T) {
 	}
 	if byID["opus"].Windows[0].Forecast != nil {
 		t.Errorf("opus has no samples but got a forecast: %+v", byID["opus"].Windows[0].Forecast)
+	}
+}
+
+func TestShortWindowCannotWasteWhileALongerWindowBinds(t *testing.T) {
+	short, long := now.Add(2*time.Hour), now.Add(18*time.Hour)
+	tests := []struct {
+		name       string
+		weeklyUsed float64
+		weeklyRate float64
+		wantWaste  float64
+		wantState  string
+	}{
+		{"weekly at 100%", 100, 0, 0, ledger.StateExhausted},
+		{"weekly runs out before its reset", 90, 1, 0, ledger.StateDegraded},
+		{"weekly has room", 10, 1, 1, ledger.StateAvailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseConfig()
+			ps := snapshot(cfg, func(m map[string]*Provider) {
+				setWindow(m["kimi"], "5h", 3, short)
+				setWindow(m["kimi"], "weekly", tt.weeklyUsed, long)
+			})
+			var samples []ledger.SampleRow
+			for m := 0; m <= 60; m += 10 {
+				at := now.Add(time.Duration(m-60) * time.Minute)
+				samples = append(samples,
+					ledger.SampleRow{ProviderID: "kimi", WindowName: "5h", At: at, UsedPct: 3, ResetsAt: short},
+					ledger.SampleRow{ProviderID: "kimi", WindowName: "weekly", At: at, UsedPct: tt.weeklyUsed - tt.weeklyRate*float64(60-m)/60, ResetsAt: long})
+			}
+			for _, p := range AttachForecasts(cfg, ps, samples, now) {
+				if p.ID != "kimi" {
+					continue
+				}
+				if f := p.Windows[0].Forecast; f == nil || f.PerishableWasteRisk != tt.wantWaste {
+					t.Errorf("5h forecast = %+v, want waste risk %v", f, tt.wantWaste)
+				}
+				if got := EffectiveState(p, 85, now); got != tt.wantState {
+					t.Errorf("effective state = %s, want %s", got, tt.wantState)
+				}
+			}
+		})
+	}
+}
+
+func paced(rate, risk float64, empties bool, reset time.Duration) *forecast.Forecast {
+	s := int64(reset.Seconds())
+	return &forecast.Forecast{PctPerHour: rate, PerishableWasteRisk: risk, EmptiesBeforeReset: empties, TimeToResetSeconds: &s}
+}
+
+func TestWasteCountsOnlyWhatALongerWindowCanStillAbsorb(t *testing.T) {
+	ws := []Window{
+		{Name: "5h", UsedPct: f(40), Forecast: paced(3, 0.8, false, 2*time.Hour)},
+		{Name: "weekly", UsedPct: f(80), Forecast: paced(1, 0.25, false, 48*time.Hour)},
+	}
+	capWaste(ws, now)
+	if got := ws[0].Forecast.PerishableWasteRisk; !near(got, 0.25) {
+		t.Errorf("5h waste risk = %v, want 0.25: weekly spare 5 pts x 3 (5h pts per weekly pt) = 15 of the 60 left", got)
+	}
+	if got := ws[1].Forecast.PerishableWasteRisk; got != 0.25 {
+		t.Errorf("weekly waste risk = %v, want it unchanged at 0.25", got)
+	}
+}
+
+func TestExpiryCountsOnlyTheRoomLongerWindowsLeave(t *testing.T) {
+	cfg := baseConfig()
+	ps := snapshot(cfg, func(m map[string]*Provider) {
+		for id, weekly := range map[string]*forecast.Forecast{"kimi": paced(1, 0.25, false, 48*time.Hour), "agy": paced(1, 0, true, 48*time.Hour)} {
+			setWindow(m[id], "5h", 40, now.Add(2*time.Hour))
+			setWindow(m[id], "weekly", 80, now.Add(48*time.Hour))
+			m[id].Windows[0].Forecast, m[id].Windows[1].Forecast = paced(3, 0.8, false, 2*time.Hour), weekly
+		}
+	})
+	d, err := Select(Request{Job: Job{ID: "j", Role: "gameplay"}, Trigger: TriggerInitial, Now: now, Config: cfg, Providers: ps})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, a := candidate(t, d, "kimi"), candidate(t, d, "agy")
+	if want := 0.15 * (1 - 2.0/5) * expiryGain; !near(k.Features.Expiry, want) || k.ExpiryLimitedBy != "weekly" {
+		t.Errorf("kimi expiry = %v limited by %q, want %v limited by weekly", k.Features.Expiry, k.ExpiryLimitedBy, want)
+	}
+	if a.Features.Expiry != 0 || a.ExpiryLimitedBy != "weekly" {
+		t.Errorf("agy expiry = %v limited by %q, want 0: its weekly runs out before reset", a.Features.Expiry, a.ExpiryLimitedBy)
+	}
+}
+
+func TestOutlookCarriesForecastsOntoAFreshSnapshot(t *testing.T) {
+	cfg := baseConfig()
+	ps := snapshot(cfg, func(m map[string]*Provider) { m["kimi"].Windows[1].Forecast = paced(1, 0, true, time.Hour) })
+	fresh := snapshot(cfg, nil)
+	OutlookOf(ps).Apply(fresh)
+	for _, p := range fresh {
+		if got := p.Windows[1].Forecast; (p.ID == "kimi") != (got != nil) {
+			t.Errorf("%s weekly forecast = %+v", p.ID, got)
+		}
 	}
 }
 

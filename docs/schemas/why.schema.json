@@ -263,6 +263,9 @@
         "expiry_neutral": {
           "type": "boolean"
         },
+        "expiry_limited_by": {
+          "type": "string"
+        },
         "windows": {
           "type": [
             "array",

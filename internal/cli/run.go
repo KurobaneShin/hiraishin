@@ -110,7 +110,7 @@ func (a *app) pickProvider(ctx context.Context, o runOpts) (whyDoc, error) {
 		}
 	}
 	job := ledger.JobRow{ID: "dry-run", Name: cmp.Or(o.name, "nothing dispatched"), Role: o.role, PinnedProvider: o.provider}
-	d, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil, e.TierFloor(ctx, job))
+	d, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil, e.TierFloor(ctx, job), e.Outlook(ctx))
 	if err != nil {
 		return whyDoc{}, err
 	}

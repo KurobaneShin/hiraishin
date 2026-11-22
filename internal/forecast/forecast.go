@@ -33,6 +33,13 @@ type Forecast struct {
 
 func BurnRate(samples []Sample) (float64, bool) {
 	sorted := slices.SortedStableFunc(slices.Values(samples), func(a, b Sample) int { return a.At.Compare(b.At) })
+	if n := len(sorted); n > 0 {
+		start := n - 1
+		for start > 0 && sameReset(sorted[start-1].ResetsAt, sorted[n-1].ResetsAt) {
+			start--
+		}
+		sorted = sorted[start:]
+	}
 	var ewma, weight float64
 	var span time.Duration
 	for i := 1; i < len(sorted); i++ {

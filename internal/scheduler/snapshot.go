@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"cmp"
+	"math"
+	"slices"
 	"time"
 
 	"github.com/KurobaneShin/hiraishin/internal/config"
@@ -63,8 +65,93 @@ func AttachForecasts(cfg *config.Config, ps []Provider, samples []ledger.SampleR
 				w.Forecast = &f
 			}
 		}
+		capWaste(ps[i].Windows, now)
 	}
 	return ps
+}
+
+func capWaste(ws []Window, now time.Time) {
+	order := make([]int, len(ws))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int {
+		ra, _ := resetIn(ws[a], now)
+		rb, _ := resetIn(ws[b], now)
+		return cmp.Compare(rb, ra)
+	})
+	for _, i := range order {
+		w := ws[i]
+		if w.Forecast == nil || w.UsedPct == nil || *w.UsedPct >= 100 {
+			continue
+		}
+		room, _ := roomBeyondPace(w, ws, now)
+		w.Forecast.PerishableWasteRisk = min(w.Forecast.PerishableWasteRisk, room/(100-*w.UsedPct))
+	}
+}
+
+func roomBeyondPace(w Window, ws []Window, now time.Time) (float64, string) {
+	room, by := math.Inf(1), ""
+	for _, o := range ws {
+		if o.Name == w.Name || resetsBefore(o, w, now) {
+			continue
+		}
+		r := math.Inf(1)
+		switch {
+		case o.UsedPct != nil && *o.UsedPct >= 100, o.Forecast != nil && o.Forecast.EmptiesBeforeReset:
+			r = 0
+		case o.UsedPct != nil && o.Forecast != nil && w.Forecast != nil && o.Forecast.PctPerHour > 0 && w.Forecast.PctPerHour > 0:
+			r = o.Forecast.PerishableWasteRisk * (100 - *o.UsedPct) * w.Forecast.PctPerHour / o.Forecast.PctPerHour
+		}
+		if r < room {
+			room, by = r, o.Name
+		}
+	}
+	return room, by
+}
+
+type Outlook map[string]map[string]forecast.Forecast
+
+func OutlookOf(ps []Provider) Outlook {
+	out := Outlook{}
+	for _, p := range ps {
+		for _, w := range p.Windows {
+			if w.Forecast == nil {
+				continue
+			}
+			if out[p.ID] == nil {
+				out[p.ID] = map[string]forecast.Forecast{}
+			}
+			out[p.ID][w.Name] = *w.Forecast
+		}
+	}
+	return out
+}
+
+func (o Outlook) Apply(ps []Provider) {
+	for i := range ps {
+		for j := range ps[i].Windows {
+			if f, ok := o[ps[i].ID][ps[i].Windows[j].Name]; ok {
+				ps[i].Windows[j].Forecast = &f
+			}
+		}
+	}
+}
+
+func resetsBefore(a, b Window, now time.Time) bool {
+	ra, okA := resetIn(a, now)
+	rb, okB := resetIn(b, now)
+	return okA && okB && ra < rb
+}
+
+func resetIn(w Window, now time.Time) (time.Duration, bool) {
+	if w.Forecast != nil && w.Forecast.TimeToResetSeconds != nil {
+		return time.Duration(*w.Forecast.TimeToResetSeconds) * time.Second, true
+	}
+	if !w.ResetsAt.IsZero() {
+		return w.ResetsAt.Sub(now), true
+	}
+	return 0, false
 }
 
 func configuredReset(pc config.Provider, window string, now time.Time) time.Time {

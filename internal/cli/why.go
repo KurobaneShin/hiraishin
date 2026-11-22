@@ -141,7 +141,7 @@ func renderWhy(w io.Writer, job whyJob, d scheduler.Decision, pal palette) {
 			note          string
 		}{
 			{"quality", f.Quality, x.Quality, d.Weights.Quality, ""},
-			{"expiring", f.Expiry, x.Expiry, d.Weights.Expiry, map[bool]string{true: "usage unknown, neutral"}[c.ExpiryNeutral]},
+			{"expiring", f.Expiry, x.Expiry, d.Weights.Expiry, expiryNote(c)},
 			{"scarcity", f.Scarcity, x.Scarcity, d.Weights.Scarcity, ""},
 			{"speed", f.Latency, x.Latency, d.Weights.Latency, ""},
 		} {
@@ -172,6 +172,18 @@ func renderWhy(w io.Writer, job whyJob, d scheduler.Decision, pal palette) {
 }
 
 const factorWidth = 16
+
+func expiryNote(c scheduler.Candidate) string {
+	switch {
+	case c.ExpiryNeutral:
+		return "usage unknown, neutral"
+	case c.ExpiryLimitedBy != "" && c.Features.Expiry == 0:
+		return clean(c.ExpiryLimitedBy) + " runs out first, nothing here expires unused"
+	case c.ExpiryLimitedBy != "":
+		return "capped by the room " + clean(c.ExpiryLimitedBy) + " leaves"
+	}
+	return ""
+}
 
 func windowNotes(c scheduler.Candidate, d scheduler.Decision) string {
 	var parts []string

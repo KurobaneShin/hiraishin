@@ -3,6 +3,7 @@ package forecast
 import (
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 	"time"
 )
@@ -59,6 +60,18 @@ func TestBurnRateSkipsResetBoundaries(t *testing.T) {
 	got, ok = BurnRate(moved)
 	if !ok || !near(got, 10, 1e-9) {
 		t.Fatalf("BurnRate across a moved resets_at = %v ok=%v, want 10", got, ok)
+	}
+}
+
+func TestBurnRateUsesOnlyTheCurrentResetWindow(t *testing.T) {
+	old := linear(t0, 10, 20, 10*time.Minute, 3*time.Hour, t0.Add(3*time.Hour+5*time.Minute))
+	fresh := linear(t0.Add(3*time.Hour+10*time.Minute), 0, 5, 10*time.Minute, time.Hour, t0.Add(8*time.Hour+5*time.Minute))
+	got, ok := BurnRate(append(slices.Clone(old), fresh...))
+	if !ok || !near(got, 5, 1e-9) {
+		t.Fatalf("BurnRate = %v ok=%v, want 5 from the current window only", got, ok)
+	}
+	if got, ok := BurnRate(append(slices.Clone(old), fresh[:2]...)); ok {
+		t.Fatalf("10 minutes into a new window borrowed the old window's rate: %v", got)
 	}
 }
 

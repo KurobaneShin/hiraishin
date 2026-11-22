@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -145,6 +146,15 @@ func (e *Engine) ForecastSnapshot(ctx context.Context, tx *ledger.Tx) ([]schedul
 	return scheduler.AttachForecasts(e.Cfg, providers, samples, now), nil
 }
 
+func (e *Engine) Outlook(ctx context.Context) scheduler.Outlook {
+	ps, err := e.ForecastSnapshot(ctx, e.Ledger.Reader())
+	if err != nil {
+		slog.Debug("forecast skipped", "err", err)
+		return nil
+	}
+	return scheduler.OutlookOf(ps)
+}
+
 func (e *Engine) JobBurn(ctx context.Context, tx *ledger.Tx) (map[string]map[string]scheduler.JobBurn, error) {
 	rows, err := tx.JobBurns(ctx, scheduler.JobBurnWindow)
 	if err != nil {
@@ -158,11 +168,12 @@ type TierFloor struct {
 	Reason string
 }
 
-func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, trigger string, exclude []string, floor TierFloor) (scheduler.Decision, ledger.Event, error) {
+func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, trigger string, exclude []string, floor TierFloor, outlook scheduler.Outlook) (scheduler.Decision, ledger.Event, error) {
 	providers, err := e.Snapshot(ctx, tx)
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err
 	}
+	outlook.Apply(providers)
 	profile, err := tx.Profile(ctx)
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err

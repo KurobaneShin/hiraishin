@@ -589,6 +589,10 @@ For each surviving candidate $p$, four features are normalized to $[0.0, 1.0]$:
    $$\text{rem}_w = \frac{100 - \text{used\_pct}_w}{100}, \qquad \text{time\_frac}_w = \text{clamp}\left(\frac{\text{time\_to\_reset}_w}{\text{duration}_w}, 0.05, 1.0\right)$$
    $$E_p = \text{clamp}\left(\text{rem}_w \cdot (1 - \text{time\_frac}_w) \cdot 1.6,\; 0.0,\; 1.0\right)$$
    Interpretation: a window with 70% remaining and only 15% of its time left before reset scores near $1.0$ (high waste risk if unused); a nearly empty window or a freshly reset window scores low. If `used_pct` or `resets_at` is unknown, $E_p = 0.50$ (neutral) and `confidence` is flagged in `why`.
+
+   A longer window that outlasts $w$ caps $\text{rem}_w$ at the room it leaves beyond its own pace, converted with the two burn rates:
+   $$\text{room}_w = \text{spare}_o \cdot \frac{\text{burn}_w}{\text{burn}_o}, \qquad \text{rem}_w = \frac{\min(100 - \text{used\_pct}_w,\ \text{room}_w)}{100}$$
+   $\text{spare}_o$ is what $o$ leaves unused at its reset at the current burn. $\text{room}_w = 0$ when $o$ is at 100% or runs out before its reset: the short window cannot be spent, so it is not urgent. Without a burn forecast for both windows the cap does not apply. `why` shows "<window> runs out first" or "capped by the room <window> leaves" and the decision row records `expiry_limited_by`. The forecast is read outside the ledger write lock.
 3. **Scarcity Preservation ($S_p$):**
    Rewards using less scarce pools and penalizes burning pools whose weekly cap is already tight:
    $$S_{\text{base}} = 1 - \frac{\text{scarcity\_tier}_p - 1}{4}, \qquad S_{\text{weekly}} = \frac{100 - \text{used\_pct}_{\text{weekly}}}{100}$$

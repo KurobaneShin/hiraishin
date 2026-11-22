@@ -159,7 +159,7 @@ func TestGraphSizingRaisesMinQualityTier(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
 	local := stackJob(t, "Fix a bug in store/load.go.\n")
 	stacktest.WriteGraph(t, local.WorktreePath, stackGraph)
-	d, _, err := e.Decide(context.Background(), e.Ledger.Reader(), local, scheduler.TriggerDryRun, nil, e.TierFloor(context.Background(), local))
+	d, _, err := e.Decide(context.Background(), e.Ledger.Reader(), local, scheduler.TriggerDryRun, nil, e.TierFloor(context.Background(), local), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestGraphSizingRaisesMinQualityTier(t *testing.T) {
 
 	wide := stackJob(t, "Touch store/load.go and game/tick.go.\n", "net/broadcast.go")
 	stacktest.WriteGraph(t, wide.WorktreePath, stackGraph)
-	d, _, err = e.Decide(context.Background(), e.Ledger.Reader(), wide, scheduler.TriggerDryRun, nil, e.TierFloor(context.Background(), wide))
+	d, _, err = e.Decide(context.Background(), e.Ledger.Reader(), wide, scheduler.TriggerDryRun, nil, e.TierFloor(context.Background(), wide), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestAbsentIntegrationsFallBackCleanly(t *testing.T) {
 		t.Errorf("enrichment without tools = %q", extra)
 	}
 	start = time.Now()
-	d, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil, e.TierFloor(ctx, job))
+	d, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil, e.TierFloor(ctx, job), nil)
 	decideTook := time.Since(start)
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestAbsentIntegrationsFallBackCleanly(t *testing.T) {
 
 	e.Cfg.Integrations = config.Integrations{}
 	start = time.Now()
-	if _, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil, e.TierFloor(ctx, job)); err != nil {
+	if _, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil, e.TierFloor(ctx, job), nil); err != nil {
 		t.Fatal(err)
 	}
 	baseline := time.Since(start)
@@ -254,7 +254,7 @@ func TestGraphSizingNeverRaisesTheTierAboveTheRolesBestProvider(t *testing.T) {
 	e.Cfg.Providers["top"] = top
 	wide := stackJob(t, "Touch store/load.go and game/tick.go.\n", "net/broadcast.go")
 	stacktest.WriteGraph(t, wide.WorktreePath, stackGraph)
-	d, _, err := e.Decide(context.Background(), e.Ledger.Reader(), wide, scheduler.TriggerDryRun, nil, e.TierFloor(context.Background(), wide))
+	d, _, err := e.Decide(context.Background(), e.Ledger.Reader(), wide, scheduler.TriggerDryRun, nil, e.TierFloor(context.Background(), wide), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
