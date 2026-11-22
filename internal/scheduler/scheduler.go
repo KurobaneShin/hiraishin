@@ -46,6 +46,7 @@ type Window struct {
 	ResetsAt      time.Time          `json:"resets_at,omitzero"`
 	Confidence    string             `json:"confidence"`
 	Forecast      *forecast.Forecast `json:"forecast,omitempty"`
+	BurnReadyIn   time.Duration      `json:"-"`
 }
 
 type Provider struct {

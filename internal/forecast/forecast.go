@@ -32,6 +32,19 @@ type Forecast struct {
 }
 
 func BurnRate(samples []Sample) (float64, bool) {
+	ewma, weight, span := currentWindowEWMA(samples)
+	if span < MinSpan {
+		return 0, false
+	}
+	return ewma / weight, true
+}
+
+func Warmup(samples []Sample) time.Duration {
+	_, _, span := currentWindowEWMA(samples)
+	return max(0, MinSpan-span)
+}
+
+func currentWindowEWMA(samples []Sample) (ewma, weight float64, span time.Duration) {
 	sorted := slices.SortedStableFunc(slices.Values(samples), func(a, b Sample) int { return a.At.Compare(b.At) })
 	if n := len(sorted); n > 0 {
 		start := n - 1
@@ -40,8 +53,6 @@ func BurnRate(samples []Sample) (float64, bool) {
 		}
 		sorted = sorted[start:]
 	}
-	var ewma, weight float64
-	var span time.Duration
 	for i := 1; i < len(sorted); i++ {
 		prev, cur := sorted[i-1], sorted[i]
 		dt := cur.At.Sub(prev.At)
@@ -53,10 +64,7 @@ func BurnRate(samples []Sample) (float64, bool) {
 		weight = alpha + (1-alpha)*weight
 		span += dt
 	}
-	if span < MinSpan {
-		return 0, false
-	}
-	return ewma / weight, true
+	return ewma, weight, span
 }
 
 func sameReset(a, b time.Time) bool {

@@ -28,7 +28,7 @@ func topFixture(width, height int) topModel {
 		{Name: "5h", UsedPct: pct(88), ResetsAt: now.Add(72 * time.Minute), Confidence: "exact"},
 		{Name: "weekly", UsedPct: pct(41), ResetsAt: now.Add(77 * time.Hour), Confidence: "exact"},
 	}
-	doc := statusDoc{Profile: "balanced", Providers: []statusProvider{
+	doc := statusDoc{Profile: "balanced", WatchRunning: true, Providers: []statusProvider{
 		{ID: "glm-a", Pool: "zai", State: "DEGRADED", ActiveJobs: 1, MaxConcurrent: 2, Windows: zai},
 		{ID: "glm-b", Pool: "zai", State: "AVAILABLE", MaxConcurrent: 2, Windows: zai},
 		{ID: "kimi", State: "EXHAUSTED", MaxConcurrent: 2, CooldownUntil: now.Add(40 * time.Minute), LastError: "rate limit: weekly quota exhausted for this account, retry after the window resets at 15:40 UTC",

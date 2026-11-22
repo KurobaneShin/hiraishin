@@ -75,6 +75,20 @@ func TestBurnRateUsesOnlyTheCurrentResetWindow(t *testing.T) {
 	}
 }
 
+func TestWarmupIsTheSpanStillMissingInTheCurrentWindow(t *testing.T) {
+	old := linear(t0, 10, 20, 10*time.Minute, 3*time.Hour, t0.Add(3*time.Hour+5*time.Minute))
+	fresh := linear(t0.Add(3*time.Hour+10*time.Minute), 0, 5, 10*time.Minute, 20*time.Minute, t0.Add(8*time.Hour+5*time.Minute))
+	if got := Warmup(append(slices.Clone(old), fresh...)); got != 10*time.Minute {
+		t.Errorf("Warmup = %v, want 10m: the new window has 20m of its 30m", got)
+	}
+	if got := Warmup(nil); got != MinSpan {
+		t.Errorf("Warmup(nil) = %v, want %v", got, MinSpan)
+	}
+	if got := Warmup(old); got != 0 {
+		t.Errorf("Warmup of a 3h trace = %v, want 0", got)
+	}
+}
+
 func TestBurnRateToleratesSubSecondResetJitter(t *testing.T) {
 	samples := linear(t0, 20, 6, 2*time.Minute, time.Hour, t0.Add(3*time.Hour))
 	for i := range samples {

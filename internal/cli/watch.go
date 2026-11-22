@@ -37,6 +37,15 @@ func lockWatch(dataDir string) (func(), error) {
 	return func() { _ = f.Close() }, nil
 }
 
+func watchRunning(dataDir string) bool {
+	f, err := os.Open(filepath.Join(dataDir, "watch.lock"))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	return errors.Is(syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB), syscall.EWOULDBLOCK)
+}
+
 func (a *app) probe() *sensor.Probe {
 	return &sensor.Probe{
 		Client: &http.Client{}, Getenv: a.env.Getenv, Home: a.env.Getenv("HOME"), Now: a.env.Now,

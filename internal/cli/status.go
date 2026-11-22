@@ -22,13 +22,14 @@ import (
 )
 
 type statusWindow struct {
-	Name            string             `json:"name"`
-	Kind            string             `json:"kind"`
-	UsedPct         *float64           `json:"used_pct"`
-	ResetsAt        time.Time          `json:"resets_at,omitzero"`
-	ResetsInSeconds *int64             `json:"resets_in_seconds"`
-	Confidence      string             `json:"confidence"`
-	Forecast        *forecast.Forecast `json:"forecast,omitempty"`
+	Name               string             `json:"name"`
+	Kind               string             `json:"kind"`
+	UsedPct            *float64           `json:"used_pct"`
+	ResetsAt           time.Time          `json:"resets_at,omitzero"`
+	ResetsInSeconds    *int64             `json:"resets_in_seconds"`
+	Confidence         string             `json:"confidence"`
+	Forecast           *forecast.Forecast `json:"forecast,omitempty"`
+	BurnReadyInSeconds *int64             `json:"burn_ready_in_seconds,omitempty"`
 }
 
 type statusProvider struct {
@@ -48,6 +49,7 @@ type statusDoc struct {
 	SchemaVersion int              `json:"schema_version"`
 	GeneratedAt   time.Time        `json:"generated_at"`
 	Profile       string           `json:"profile"`
+	WatchRunning  bool             `json:"watch_running"`
 	Providers     []statusProvider `json:"providers"`
 	Jobs          map[string]int   `json:"jobs"`
 }
@@ -157,7 +159,9 @@ func loadStatus(ctx context.Context, e *engine.Engine, now time.Time) (statusDoc
 	if err != nil {
 		return statusDoc{}, nil, err
 	}
-	return buildStatus(snap, rows, burn, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, now), jobs, nil
+	doc := buildStatus(snap, rows, burn, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, now)
+	doc.WatchRunning = watchRunning(e.Paths.DataDir)
+	return doc, jobs, nil
 }
 
 func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, burn map[string]map[string]scheduler.JobBurn, warn float64, profile string, jobs []ledger.JobRow, now time.Time) statusDoc {
@@ -188,6 +192,10 @@ func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, burn map[
 				secs := int64(w.ResetsAt.Sub(now).Seconds())
 				sw.ResetsInSeconds = &secs
 			}
+			if w.Forecast == nil && w.BurnReadyIn > 0 {
+				secs := int64(w.BurnReadyIn.Seconds())
+				sw.BurnReadyInSeconds = &secs
+			}
 			sp.Windows = append(sp.Windows, sw)
 		}
 		doc.Providers = append(doc.Providers, sp)
@@ -213,7 +221,7 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 			if w.Confidence != "" && w.Confidence != ledger.ConfidenceExact {
 				fmt.Fprintf(&b, "  %s", pal.paint(dim, clean(w.Confidence)))
 			}
-			b.WriteString(windowOutlook(w, windows, pal))
+			b.WriteString(windowOutlook(w, windows, doc.WatchRunning, pal))
 			b.WriteString("\n")
 		}
 		for _, p := range group {
@@ -242,12 +250,15 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 		}
 		fmt.Fprintf(&b, "\n %s %s\n", pal.paint(bold, "jobs"), strings.Join(parts, pal.paint(dim, " · ")))
 	}
+	if !doc.WatchRunning {
+		fmt.Fprintf(&b, "\n %s\n", pal.paint(yellow, "watch not running: usage refreshes only when status runs and no job fails over. Start it: hiraishin watch"))
+	}
 	fmt.Fprintf(&b, "\n %s\n", pal.paint(dim, "jobs = running/max at once per provider · how routing works: hiraishin help routing"))
 	_, err := io.WriteString(out, b.String())
 	return err
 }
 
-func windowOutlook(w statusWindow, all []statusWindow, pal palette) string {
+func windowOutlook(w statusWindow, all []statusWindow, watching bool, pal palette) string {
 	if atLimit(w) {
 		return "  " + pal.paint(red, "limit reached")
 	}
@@ -258,8 +269,13 @@ func windowOutlook(w statusWindow, all []statusWindow, pal palette) string {
 	}
 	f := w.Forecast
 	if f == nil {
-		if w.UsedPct == nil {
+		switch {
+		case w.UsedPct == nil:
 			return ""
+		case !watching:
+			return "  " + pal.paint(dim, "no burn data: watch not running")
+		case w.BurnReadyInSeconds != nil:
+			return "  " + pal.paint(dim, "no burn data yet, ready in "+duration(time.Duration(*w.BurnReadyInSeconds)*time.Second))
 		}
 		return "  " + pal.paint(dim, "no burn data yet")
 	}
@@ -336,6 +352,9 @@ func statusHeader(doc statusDoc, pal palette) string {
 	h := fmt.Sprintf("%s  profile %s %s %d providers", pal.paint(bold, "hiraishin"), pal.paint(cyan, clean(doc.Profile)), pal.paint(dim, "·"), len(doc.Providers))
 	for _, label := range labels {
 		h += fmt.Sprintf(" %s %s", pal.paint(dim, "·"), pal.paint(colors[label], fmt.Sprintf("%d %s", counts[label], label)))
+	}
+	if !doc.WatchRunning {
+		h += fmt.Sprintf(" %s %s", pal.paint(dim, "·"), pal.paint(yellow, "watch not running"))
 	}
 	return h
 }

@@ -170,6 +170,29 @@ func TestStatusJSONAndText(t *testing.T) {
 	_ = e.Close()
 	doc := h.run(0, "status", "--json", "--no-sensors")
 	validate(t, "status.schema.json", doc)
+	var parsed statusDoc
+	if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range parsed.Providers {
+		if w := p.Windows[0]; p.ID == "kimi" && (w.BurnReadyInSeconds == nil || *w.BurnReadyInSeconds != 1800) {
+			t.Errorf("kimi has one sample, want burn ready in 1800s: %+v", w)
+		}
+	}
+	if parsed.WatchRunning {
+		t.Error("watch_running = true with no watch")
+	}
+	release, err := lockWatch(h.env.Getenv("HIRAISHIN_DATA_DIR"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !watchRunning(h.env.Getenv("HIRAISHIN_DATA_DIR")) {
+		t.Error("watchRunning = false while the watch lock is held")
+	}
+	release()
+	if watchRunning(h.env.Getenv("HIRAISHIN_DATA_DIR")) {
+		t.Error("watchRunning = true after the watch lock was released")
+	}
 	text := h.run(0, "status", "--no-sensors")
 	for _, want := range []string{"kimi", "available", "0/2 jobs", "40%", "resets 1h12m", "agy", "profile burn-expiring-first", "hiraishin help routing"} {
 		if !strings.Contains(text, want) {
@@ -231,7 +254,7 @@ func TestRenderStatusExplainsAWindowAtItsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, want := range []string{"limit reached", "blocked until weekly resets", "~50% left unused at reset", "no burn data yet", "1 limit reached", "1 disabled"} {
+	for _, want := range []string{"limit reached", "blocked until weekly resets", "~50% left unused at reset", "no burn data: watch not running", "1 limit reached", "1 disabled", "watch not running", "Start it: hiraishin watch"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q:\n%s", want, text)
 		}
@@ -240,6 +263,15 @@ func TestRenderStatusExplainsAWindowAtItsLimit(t *testing.T) {
 		if strings.Contains(text, bad) {
 			t.Errorf("must not show %q:\n%s", bad, text)
 		}
+	}
+	doc.WatchRunning = true
+	doc.Providers[2].Windows[0].BurnReadyInSeconds = sec(13 * time.Minute)
+	out.Reset()
+	if err := renderStatus(&out, doc, 85, 98, palette{}); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "no burn data yet, ready in 13m") || strings.Contains(text, "watch not running") {
+		t.Errorf("with the watch running:\n%s", text)
 	}
 }
 

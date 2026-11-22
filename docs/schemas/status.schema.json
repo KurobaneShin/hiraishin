@@ -8,6 +8,7 @@
     "schema_version",
     "generated_at",
     "profile",
+    "watch_running",
     "providers",
     "jobs"
   ],
@@ -21,6 +22,9 @@
     },
     "profile": {
       "type": "string"
+    },
+    "watch_running": {
+      "type": "boolean"
     },
     "jobs": {
       "type": "object",
@@ -127,6 +131,10 @@
                 },
                 "confidence": {
                   "type": "string"
+                },
+                "burn_ready_in_seconds": {
+                  "type": "integer",
+                  "minimum": 0
                 },
                 "forecast": {
                   "type": "object",

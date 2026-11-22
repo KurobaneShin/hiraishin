@@ -58,11 +58,10 @@ func AttachForecasts(cfg *config.Config, ps []Provider, samples []ledger.SampleR
 		trace := traces[quotaKey(cfg, ps[i].ID)]
 		for j := range ps[i].Windows {
 			w := &ps[i].Windows[j]
-			if len(trace[w.Name]) == 0 {
-				continue
-			}
 			if f, ok := forecast.Project(trace[w.Name], cmp.Or(w.ResetsAt, configuredReset(ps[i].Config, w.Name, now)), now); ok {
 				w.Forecast = &f
+			} else {
+				w.BurnReadyIn = forecast.Warmup(trace[w.Name])
 			}
 		}
 		capWaste(ps[i].Windows, now)
