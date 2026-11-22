@@ -134,7 +134,7 @@ func (a *app) status(ctx context.Context, noSensors bool, out io.Writer) (status
 
 func loadStatus(ctx context.Context, e *engine.Engine, now time.Time) (statusDoc, []ledger.JobRow, error) {
 	r := e.Ledger.Reader()
-	snap, err := e.Snapshot(ctx, r)
+	snap, err := e.ForecastSnapshot(ctx, r)
 	if err != nil {
 		return statusDoc{}, nil, err
 	}

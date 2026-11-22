@@ -95,7 +95,7 @@ func (h *harness) decide(jobID string) scheduler.Decision {
 		evs := []ledger.Event{{JobID: jobID, Source: ledger.SourceCLI, Payload: ledger.JobQueued{Name: "persist-all", Role: "gameplay", WorktreePath: "/wt", Branch: "b", BriefPath: "/b.md", TerminalAdapter: "process"}}}
 		var dec ledger.Event
 		var err error
-		d, dec, err = e.Decide(ctx, tx, ledger.JobRow{ID: jobID, Role: "gameplay"}, scheduler.TriggerDryRun, nil)
+		d, dec, err = e.Decide(ctx, tx, ledger.JobRow{ID: jobID, Role: "gameplay"}, scheduler.TriggerDryRun, nil, engine.TierFloor{})
 		return append(evs, dec), err
 	})
 	if err != nil {
@@ -249,7 +249,7 @@ func TestWhyMatchesDecisionRow(t *testing.T) {
 	h.run(1, "why", "job_missing")
 }
 
-func TestForecastRunningOutBeforeResetDegradesStatusAndCandidates(t *testing.T) {
+func TestForecastRunningOutBeforeResetShowsInStatusWithoutDegrading(t *testing.T) {
 	h := newHarness(t)
 	e := h.engine()
 	reset := h.now.Add(3 * time.Hour)
@@ -285,16 +285,16 @@ func TestForecastRunningOutBeforeResetDegradesStatusAndCandidates(t *testing.T) 
 			t.Errorf("agy forecast = %+v", *f)
 		}
 	}
-	if states["kimi"] != ledger.StateDegraded || states["agy"] != ledger.StateAvailable {
-		t.Fatalf("states = %v, want kimi DEGRADED and agy AVAILABLE", states)
+	if states["kimi"] != ledger.StateAvailable || states["agy"] != ledger.StateAvailable {
+		t.Fatalf("states = %v, want both AVAILABLE below warn_used_pct", states)
 	}
 	text := h.run(0, "status", "--no-sensors")
-	if !strings.Contains(text, "degraded") || !strings.Contains(text, "empty in 2h") || !strings.Contains(text, "25%/h") {
+	if strings.Contains(text, "degraded") || !strings.Contains(text, "empty in 2h") || !strings.Contains(text, "25%/h") {
 		t.Errorf("status text lacks the forecast:\n%s", text)
 	}
 	d := h.decide("job_f")
-	if k := candidateOf(t, d, "kimi"); k.State != ledger.StateDegraded || k.DegradedPenalty != scheduler.DegradedPenalty {
-		t.Errorf("kimi candidate state = %s penalty = %v, want DEGRADED with penalty", k.State, k.DegradedPenalty)
+	if k := candidateOf(t, d, "kimi"); k.State != ledger.StateAvailable || k.DegradedPenalty != 0 {
+		t.Errorf("kimi candidate state = %s penalty = %v, want AVAILABLE without penalty", k.State, k.DegradedPenalty)
 	}
 	if a := candidateOf(t, d, "agy"); a.State != ledger.StateAvailable {
 		t.Errorf("agy candidate state = %s, want AVAILABLE", a.State)

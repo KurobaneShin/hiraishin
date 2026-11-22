@@ -137,24 +137,24 @@ func briefGoal(path string) string {
 	return strings.Join(words, " ")
 }
 
-func (e *Engine) tierFloor(ctx context.Context, tx *ledger.Tx, job ledger.JobRow) (int, string) {
+func (e *Engine) TierFloor(ctx context.Context, job ledger.JobRow) TierFloor {
 	g := e.Cfg.Integrations.Graphify
 	if g == nil || !g.Enabled || !g.AutoSizeTier || job.WorktreePath == "" {
-		return 0, ""
+		return TierFloor{}
 	}
 	ctx, cancel := context.WithTimeout(ctx, sizingTimeout)
 	defer cancel()
 	graph, err := loadGraph(ctx, job.WorktreePath)
 	if err != nil {
 		skipped(integrationGraphify, err)
-		return 0, ""
+		return TierFloor{}
 	}
-	files := e.changedFiles(ctx, job, tx)
+	files := e.changedFiles(ctx, job, e.Ledger.Reader())
 	if brief, err := os.ReadFile(job.BriefPath); err == nil {
 		files = append(files, graph.Mentioned(string(brief))...)
 	}
 	size := graph.Size(files)
-	return min(size.TierFloor(), e.bestAllowedTier(job.Role)), "graphify (" + size.Reason() + ")"
+	return TierFloor{Tier: min(size.TierFloor(), e.bestAllowedTier(job.Role)), Reason: "graphify (" + size.Reason() + ")"}
 }
 
 func (e *Engine) bestAllowedTier(roleName string) int {

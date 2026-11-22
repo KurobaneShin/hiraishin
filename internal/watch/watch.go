@@ -209,7 +209,11 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 	}
 	evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobFailed{AttemptID: att.ID, EndCommit: cp.Head, ExitCode: code, Reason: reason}})
 	w.log.Warn("job failed", "job", job.ID, "provider", att.ProviderID, "reason", reason)
-	if err := e.Ledger.Append(ctx, evs...); err != nil {
+	minutes := e.Now().Sub(att.StartedAt).Minutes()
+	if err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
+		outcome, err := e.OutcomeEvent(ctx, tx, att.ProviderID, job.Role, job.ID, ledger.SourceWatcher, scheduler.Outcome{Success: false, DurationMin: minutes})
+		return append(evs, outcome), err
+	}); err != nil {
 		return err
 	}
 	w.recordOutcome(ctx, job.ID)
@@ -402,13 +406,14 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 		}
 	}
 	var d scheduler.Decision
+	floor := e.TierFloor(ctx, job)
 	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
 		var dec ledger.Event
 		var err error
 		if waitForReset {
 			pinned := job
 			pinned.PinnedProvider = att.ProviderID
-			if d, dec, err = e.Decide(ctx, tx, pinned, trigger, nil); err != nil {
+			if d, dec, err = e.Decide(ctx, tx, pinned, trigger, nil, floor); err != nil {
 				return nil, err
 			}
 			if d.ChosenProvider == "" {
@@ -424,7 +429,7 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 			if job.State == ledger.JobFailingOverState && att != nil && !job.NeverSwitch {
 				exclude = e.Cfg.PoolMembers(att.ProviderID)
 			}
-			if d, dec, err = e.Decide(ctx, tx, job, trigger, exclude); err != nil {
+			if d, dec, err = e.Decide(ctx, tx, job, trigger, exclude, floor); err != nil {
 				return nil, err
 			}
 		}

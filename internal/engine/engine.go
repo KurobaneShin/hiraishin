@@ -129,15 +129,28 @@ func (e *Engine) Snapshot(ctx context.Context, tx *ledger.Tx) ([]scheduler.Provi
 	if err != nil {
 		return nil, err
 	}
+	return scheduler.Snapshot(e.Cfg, rows, wins), nil
+}
+
+func (e *Engine) ForecastSnapshot(ctx context.Context, tx *ledger.Tx) ([]scheduler.Provider, error) {
+	providers, err := e.Snapshot(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	now := e.Now()
 	samples, err := tx.QuotaSamples(ctx, now.Add(-forecast.Lookback))
 	if err != nil {
 		return nil, err
 	}
-	return scheduler.AttachForecasts(e.Cfg, scheduler.Snapshot(e.Cfg, rows, wins), samples, now), nil
+	return scheduler.AttachForecasts(e.Cfg, providers, samples, now), nil
 }
 
-func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, trigger string, exclude []string) (scheduler.Decision, ledger.Event, error) {
+type TierFloor struct {
+	Tier   int
+	Reason string
+}
+
+func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, trigger string, exclude []string, floor TierFloor) (scheduler.Decision, ledger.Event, error) {
 	providers, err := e.Snapshot(ctx, tx)
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err
@@ -158,12 +171,11 @@ func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, t
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err
 	}
-	floor, floorReason := e.tierFloor(ctx, tx, job)
 	d, err := scheduler.Select(scheduler.Request{
 		Job:     scheduler.Job{ID: job.ID, Role: job.Role, PinnedProvider: job.PinnedProvider, Exclude: exclude},
 		Trigger: trigger, Now: e.Now(), Config: e.Cfg, RuntimeProfile: profile, Prefers: prefers, Providers: providers,
 		LearnDeltas:    scheduler.LearnDeltas(e.Cfg.Learning, learned),
-		MinQualityTier: floor, MinQualityTierReason: floorReason,
+		MinQualityTier: floor.Tier, MinQualityTierReason: floor.Reason,
 	})
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err

@@ -225,7 +225,7 @@ func EffectiveState(p Provider, warnPct float64, now time.Time) string {
 			return ledger.StateDegraded
 		}
 		for _, w := range p.Windows {
-			if w.UsedPct != nil && *w.UsedPct >= warnPct || w.Forecast != nil && w.Forecast.EmptiesBeforeReset {
+			if w.UsedPct != nil && *w.UsedPct >= warnPct {
 				return ledger.StateDegraded
 			}
 		}

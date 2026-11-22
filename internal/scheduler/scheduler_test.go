@@ -316,8 +316,8 @@ func TestAttachForecastsSharesPoolTracesAndUsesTheFixedResetCron(t *testing.T) {
 		if w.Forecast == nil || !near(w.Forecast.PctPerHour, 25) || !w.Forecast.EmptiesBeforeReset {
 			t.Fatalf("%s 5h forecast = %+v, want 25%%/h emptying before reset", id, w.Forecast)
 		}
-		if got := EffectiveState(byID[id], 85, now); got != ledger.StateDegraded {
-			t.Errorf("%s effective state = %s, want DEGRADED", id, got)
+		if got := EffectiveState(byID[id], 85, now); got != ledger.StateAvailable {
+			t.Errorf("%s at 50%% used is forecast to empty but effective state = %s, want AVAILABLE", id, got)
 		}
 	}
 	daily := byID["sonnet"].Windows[0]

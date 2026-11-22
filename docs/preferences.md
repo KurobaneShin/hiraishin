@@ -691,5 +691,5 @@ All runtime overrides write an event to the ledger and take effect immediately w
 | `hiraishin drain <provider> [--reason "..."]` | Transitions provider to `DRAINING`; running jobs finish, then transitions to `PAUSED` | Until `hiraishin resume <provider>` |
 | `hiraishin resume <provider>` | Returns a `PAUSED` or `DRAINING` provider to `AVAILABLE` (or `EXHAUSTED` if window is still empty) | Immediate |
 | `hiraishin why <job_id \| decision_id> [--all] [--json]` | Prints the full Stage 1 & Stage 2 trace for the latest (or all) scheduling decisions | Read-only |
-| `hiraishin outcome record <provider> <role> [--failed] [--review-rounds N] [--build-failures N] [--duration-min M]` | Appends one outcome for learning (`job.completed` under `hiraishin watch` records one automatically) | Ignored by stats while frozen |
+| `hiraishin outcome record <provider> <role> [--failed] [--review-rounds N] [--build-failures N] [--duration-min M]` | Appends one outcome for learning (under `hiraishin watch`, `job.completed` records a success and `job.failed` a failure automatically) | Ignored by stats while frozen |
 | `hiraishin learn status \| freeze \| unfreeze \| reset` | Inspects per-(provider, role) EWMA stats and current deltas, freezes or unfreezes updates, or deletes all stats (deltas back to `0.0`) | Global |

@@ -200,7 +200,7 @@ Every mutation enters `events` first.
 stateDiagram-v2
     [*] --> AVAILABLE: init / sensor ok
 
-    AVAILABLE --> DEGRADED: used_pct >= warn_threshold\nor forecast empties a window before reset\nor sensor probe flaky
+    AVAILABLE --> DEGRADED: used_pct >= warn_threshold\nor sensor probe flaky
     DEGRADED --> AVAILABLE: window reset / probe recovers
 
     AVAILABLE --> EXHAUSTED: limit_hit OR used_pct >= 100
@@ -228,7 +228,7 @@ stateDiagram-v2
 
 State semantics:
 - `AVAILABLE`: eligible for new dispatches and failovers.
-- `DEGRADED`: still eligible (with optional penalty), approaching exhaustion (`used_pct >= warn_used_pct`, or the EWMA burn rate over the last 6h of `sensor.quota_sampled` empties a window before it resets), or falling back to lower-confidence sensor.
+- `DEGRADED`: still eligible (with optional penalty), approaching exhaustion (`used_pct >= warn_used_pct`; the 6h EWMA burn-rate forecast shows in `status` but does not degrade), or falling back to lower-confidence sensor.
 - `DRAINING`: running jobs finish normally; no new jobs or failovers are assigned. Automatically settles into `PAUSED` once `active_jobs == 0`.
 - `PAUSED`: operator-suspended; ignored by scheduler regardless of quota.
 - `EXHAUSTED`: hard-blocked until `resets_at` passes and a lightweight check confirms recovery (or operator overrides).

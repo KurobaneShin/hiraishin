@@ -76,6 +76,7 @@ func (e *Engine) Queue(ctx context.Context, job ledger.JobRow) (scheduler.Decisi
 
 func (e *Engine) QueueFrom(ctx context.Context, job ledger.JobRow, source string) (scheduler.Decision, error) {
 	var d scheduler.Decision
+	floor := e.TierFloor(ctx, job)
 	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
 		queued := ledger.Event{JobID: job.ID, Source: source, Payload: ledger.JobQueued{
 			Name: job.Name, Role: job.Role, WorktreePath: job.WorktreePath, Branch: job.Branch, BriefPath: job.BriefPath,
@@ -83,7 +84,7 @@ func (e *Engine) QueueFrom(ctx context.Context, job ledger.JobRow, source string
 		}}
 		var dec ledger.Event
 		var err error
-		d, dec, err = e.Decide(ctx, tx, job, scheduler.TriggerInitial, nil)
+		d, dec, err = e.Decide(ctx, tx, job, scheduler.TriggerInitial, nil, floor)
 		if err != nil {
 			return nil, err
 		}
