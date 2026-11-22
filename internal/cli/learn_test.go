@@ -4,8 +4,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 )
 
 const learningTOML = `
@@ -23,17 +21,6 @@ func newLearningHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	return h
-}
-
-func candidateOf(t *testing.T, d scheduler.Decision, id string) scheduler.Candidate {
-	t.Helper()
-	for _, c := range d.Candidates {
-		if c.Provider == id {
-			return c
-		}
-	}
-	t.Fatalf("no candidate %s in %+v", id, d.Candidates)
-	return scheduler.Candidate{}
 }
 
 func (h *harness) teachKimiOverAgy() {
