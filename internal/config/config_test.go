@@ -60,7 +60,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := c.Providers["a"]
-	if !p.IsEnabled() || p.MaxConcurrent != 1 || p.CostClass != "subscription" || p.Sensor.PollIntervalSec != MinPollSeconds {
+	if !p.IsEnabled() || p.MaxConcurrent != 0 || p.CostClass != "subscription" || p.Sensor.PollIntervalSec != MinPollSeconds {
 		t.Errorf("defaults not applied: %+v", p)
 	}
 	if c.General.ActiveProfile != "balanced" || c.General.ReserveUsedPct != 98 || !c.General.AllowFailoverPastReserve() {

@@ -290,6 +290,44 @@ func (t *Tx) LatestAttempts(ctx context.Context, states ...string) (map[string]A
 	return out, nil
 }
 
+func (t *Tx) AttemptsSince(ctx context.Context, since time.Time) ([]AttemptRow, error) {
+	rows, err := t.q.QueryContext(ctx, `SELECT attempt_id, job_id, attempt_num, provider_id, decision_id, attempt_dir, start_commit, end_commit, exit_reason, started_at, ended_at
+		FROM job_attempts WHERE ended_at IS NULL OR ended_at >= ? ORDER BY started_at`, formatTime(since))
+	if err != nil {
+		return nil, fmt.Errorf("query attempts since: %w", err)
+	}
+	return scanAttempts(rows)
+}
+
+type JobBurnRow struct {
+	ProviderID string
+	JobBurnMeasured
+}
+
+func (t *Tx) JobBurns(ctx context.Context, perWindow int) ([]JobBurnRow, error) {
+	rows, err := t.q.QueryContext(ctx, `SELECT provider_id, payload_json FROM (
+		SELECT provider_id, payload_json, seq, ROW_NUMBER() OVER (PARTITION BY provider_id, json_extract(payload_json, '$.window_name') ORDER BY seq DESC) AS rn
+		FROM events WHERE kind = ?) WHERE rn <= ? ORDER BY seq DESC`, string(KindJobBurnMeasured), perWindow)
+	if err != nil {
+		return nil, fmt.Errorf("query job burns: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []JobBurnRow
+	for rows.Next() {
+		var provider sql.NullString
+		var body string
+		if err := rows.Scan(&provider, &body); err != nil {
+			return nil, fmt.Errorf("scan job burn: %w", err)
+		}
+		r := JobBurnRow{ProviderID: provider.String}
+		if err := json.Unmarshal([]byte(body), &r.JobBurnMeasured); err != nil {
+			return nil, fmt.Errorf("decode job burn: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func (t *Tx) LastSeq(ctx context.Context) (int64, error) {
 	var seq int64
 	if err := t.q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events`).Scan(&seq); err != nil {

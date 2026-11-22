@@ -177,7 +177,7 @@ func (t *Tx) project(ctx context.Context, ev *Event) error {
 		return t.exec(ctx, `DELETE FROM runtime_state WHERE key = 'learning_frozen'`)
 	case LearnReset:
 		return t.exec(ctx, `DELETE FROM learning_stats`)
-	case ProbeFailed:
+	case ProbeFailed, JobBurnMeasured:
 		return nil
 	default:
 		return fmt.Errorf("no projection for %T", p)

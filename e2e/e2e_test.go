@@ -414,7 +414,7 @@ func TestE2EFailoverPreservesDirtyWorktreeAndCompletes(t *testing.T) {
 		if r.code != 0 || r.elapsed >= 500*time.Millisecond {
 			t.Fatalf("status exit %d in %v", r.code, r.elapsed)
 		}
-		for _, want := range []string{"kimi", "exhausted", "agy", "available", "5h", "100%", "inferred", "0/1", "0/2"} {
+		for _, want := range []string{"kimi", "exhausted", "agy", "available", "5h", "100%", "inferred", "0 jobs", "0/2"} {
 			if !strings.Contains(r.stdout, want) {
 				t.Errorf("status missing %q:\n%s", want, r.stdout)
 			}

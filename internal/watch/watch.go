@@ -192,6 +192,7 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 			w.tracker.Clear(att.ProviderID)
 		}
 		minutes := e.Now().Sub(att.StartedAt).Minutes()
+		evs = append(evs, w.burnEvents(ctx, job.ID, att, e.Now())...)
 		evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobCompleted{AttemptID: att.ID, EndCommit: cp.Head, DurationMin: minutes}})
 		w.log.Info("job completed", "job", job.ID, "provider", att.ProviderID)
 		if err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
@@ -207,6 +208,7 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 	if code == -1 {
 		reason = "agent process ended without an exit code"
 	}
+	evs = append(evs, w.burnEvents(ctx, job.ID, att, e.Now())...)
 	evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobFailed{AttemptID: att.ID, EndCommit: cp.Head, ExitCode: code, Reason: reason}})
 	w.log.Warn("job failed", "job", job.ID, "provider", att.ProviderID, "reason", reason)
 	minutes := e.Now().Sub(att.StartedAt).Minutes()
@@ -353,7 +355,7 @@ func (w *Watcher) failover(ctx context.Context, job ledger.JobRow, att ledger.At
 		return err
 	}
 	now := e.Now()
-	var evs []ledger.Event
+	evs := w.burnEvents(ctx, job.ID, att, now)
 	exitReason := "limit_hit"
 	if sig.Kind == sensor.AuthError {
 		exitReason = "auth_error"

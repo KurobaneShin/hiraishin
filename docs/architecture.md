@@ -42,7 +42,7 @@ flowchart LR
 
 1. **No mid-task switching unless exhausted.** Prompt caches are per-model and switching models mid-stream wastes context and causes drift. A running job stays on its assigned provider until completion, cancellation, or provider exhaustion.
 2. **Reset returns new work only.** When an exhausted provider's window resets, it transitions back to `AVAILABLE` and becomes eligible for newly dispatched jobs (and future failovers); already-running jobs on a fallback provider are not disrupted.
-3. **Bounded concurrency per provider.** Each provider has an explicit `max_concurrent` slot cap enforced atomically in the ledger transaction before launch.
+3. **Bounded concurrency per provider.** A provider may set a `max_concurrent` slot cap; with or without it, the quota brake rejects a launch whose projected pool burn (measured burn per job × running jobs) would reach `reserve_used_pct` before the window resets or the job ends. Both are checked in the ledger transaction before launch.
 
 ## Data Model (SQLite)
 
@@ -191,6 +191,7 @@ Every mutation enters `events` first.
 | Learning | `learning.outcome_recorded` | CLI / Watcher | `role`, `success`, `review_rounds`, `build_failures`, `duration_min`, `quality`, `alpha`, `frozen` (stats untouched when `true`) |
 | Learning | `learning.frozen` / `learning.unfrozen` | CLI | `by` (global freeze, stored in `runtime_state`) |
 | Learning | `learning.reset` | CLI | `by` (deletes every `learning_stats` row) |
+| Quota | `quota.job_burn` | Watcher | `attempt_id`, `window_name`, `pct_per_hour` (this attempt's share of the window burn), `duration_min` (no projection; read by the scheduler's quota brake and `status`) |
 
 ## State Machines
 

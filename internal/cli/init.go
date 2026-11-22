@@ -95,7 +95,7 @@ func confirm(a *app, found []inventory.Found) ([]inventory.Found, error) {
 		for _, q := range []struct {
 			label string
 			dst   *int
-		}{{"  quality tier 1-5", &prov.QualityTier}, {"  scarcity tier 1-5", &prov.ScarcityTier}, {"  max concurrent jobs", &prov.MaxConcurrent}} {
+		}{{"  quality tier 1-5", &prov.QualityTier}, {"  scarcity tier 1-5", &prov.ScarcityTier}, {"  max concurrent jobs (0 = no cap)", &prov.MaxConcurrent}} {
 			if *q.dst, err = p.askInt(q.label, *q.dst); err != nil {
 				return nil, err
 			}

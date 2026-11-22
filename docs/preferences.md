@@ -122,7 +122,8 @@ scarcity_tier = 5
 # User-assigned speed/responsiveness rating (1..5, higher = faster).
 speed_tier = 3
 
-# Hard cap on concurrent jobs launched by `hiraishin` on this provider.
+# Optional hard cap on concurrent jobs launched by `hiraishin` on this provider.
+# 0 or unset: no fixed cap; the quota brake (Stage 1, rule 8) limits parallel jobs instead.
 max_concurrent = 4
 
 # Optional command wrapper (e.g. "flock ~/.agy.lock" for single-flight CLIs).
@@ -571,8 +572,9 @@ A candidate provider $p$ is immediately rejected (and its rejection reason logge
 4. If the job or role has a `pin_provider`, `p.id == pin_provider`
 5. `p.id` is in `role.allowed_providers` and NOT in `role.deny_providers`
 6. `p.quality_tier >= effective_min_quality_tier` (where `effective_min_quality_tier` may be raised by `graphify` sizing if enabled)
-7. `p.active_jobs < p.max_concurrent`
-8. Every window of `p` (and its `shared_quota_pool`, if set) has `used_pct < reserve_used_pct` (or `< 100.0` during failover when `reserve_allow_failover = true`)
+7. `p.active_jobs < p.max_concurrent` when `max_concurrent > 0`
+8. Quota brake, for every window of `p` with a measured burn per job: `used_pct + rate × horizon < reserve_used_pct`, where `rate` is the burn per job of `p` plus the burn per job of every job already running on the pool (each at its own provider's estimate, or at `p`'s when that provider has none), and `horizon` is `min(time to reset, typical job duration of p)`. The burn per job is the duration-weighted mean of the newest 20 `quota.job_burn` measurements for that provider and window (a median would read 0 on windows reported in whole percent, where most short jobs see no step), and the typical duration is their median; the watcher records one per window when an attempt ends, splitting each sample interval equally between the jobs running on the pool at that time. Usage outside hiraishin on the same account counts as job usage, so the estimate errs high. Without a measurement there is no brake.
+9. Every window of `p` (and its `shared_quota_pool`, if set) has `used_pct < reserve_used_pct` (or `< 100.0` during failover when `reserve_allow_failover = true`; the quota brake uses the same limit)
 
 If zero candidates pass Stage 1, the job transitions to `WAITING_QUOTA` and records the earliest `resets_at` among blocked allowed providers.
 

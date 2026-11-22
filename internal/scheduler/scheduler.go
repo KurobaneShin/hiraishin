@@ -80,6 +80,7 @@ type Request struct {
 	LearnDeltas          map[string]float64
 	MinQualityTier       int
 	MinQualityTierReason string
+	JobBurn              map[string]map[string]JobBurn
 }
 
 type Features struct {
@@ -105,6 +106,7 @@ type Candidate struct {
 	Windows         []Window  `json:"windows"`
 	ActiveJobs      int       `json:"active_jobs"`
 	MaxConcurrent   int       `json:"max_concurrent"`
+	busy            bool
 }
 
 type Decision struct {
@@ -147,7 +149,7 @@ func Select(req Request) (Decision, error) {
 	for _, p := range orderProviders(req.Providers, l.rank) {
 		c := evaluate(req, role, roleName, pin, weights, p, l)
 		d.Candidates = append(d.Candidates, c)
-		if len(c.Rejections) == 1 && p.ActiveJobs >= p.Config.MaxConcurrent {
+		if len(c.Rejections) == 1 && c.busy {
 			d.FullProviders = append(d.FullProviders, p.ID)
 		}
 	}
@@ -175,6 +177,7 @@ func Select(req Request) (Decision, error) {
 }
 
 type lookup struct {
+	byID    map[string]Provider
 	rank    map[string]int
 	deny    map[string]bool
 	exclude map[string]bool
@@ -190,7 +193,10 @@ func set(ids []string) map[string]bool {
 }
 
 func newLookup(req Request, role config.Role, roleName string) lookup {
-	l := lookup{rank: make(map[string]int, len(role.AllowedProviders)), deny: set(role.DenyProviders), exclude: set(req.Job.Exclude), prefer: map[string]bool{}}
+	l := lookup{byID: make(map[string]Provider, len(req.Providers)), rank: make(map[string]int, len(role.AllowedProviders)), deny: set(role.DenyProviders), exclude: set(req.Job.Exclude), prefer: map[string]bool{}}
+	for _, p := range req.Providers {
+		l.byID[p.ID] = p
+	}
 	for i, id := range role.AllowedProviders {
 		if _, dup := l.rank[id]; !dup {
 			l.rank[id] = i
@@ -264,12 +270,17 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 	if p.Config.QualityTier < role.MinQualityTier {
 		reject("quality_tier %d < min_quality_tier %d", p.Config.QualityTier, role.MinQualityTier)
 	}
-	if p.ActiveJobs >= p.Config.MaxConcurrent {
+	if p.Config.MaxConcurrent > 0 && p.ActiveJobs >= p.Config.MaxConcurrent {
 		reject("slots %d/%d full", p.ActiveJobs, p.Config.MaxConcurrent)
+		c.busy = true
 	}
 	limit := cfg.General.ReserveUsedPct
 	if req.Trigger == TriggerFailover && cfg.General.AllowFailoverPastReserve() {
 		limit = 100
+	}
+	if reason := quotaBrake(req, p, l.byID, limit); reason != "" && !c.busy {
+		reject("%s", reason)
+		c.busy = true
 	}
 	for _, win := range p.Windows {
 		if win.UsedPct != nil && *win.UsedPct >= limit && state != ledger.StateExhausted {

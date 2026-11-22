@@ -380,3 +380,68 @@ func TestSnapshotShowsOnlyConfiguredWindowsWhenTheConfigListsThem(t *testing.T) 
 		t.Errorf("kimi without configured windows = %v, want the observed daily window", got)
 	}
 }
+
+func TestEstimateJobBurnWeighsTheNewestMeasurementsByDuration(t *testing.T) {
+	var older []ledger.JobBurnRow
+	for i, rate := range []float64{9, 1, 5, 3, 7} {
+		older = append(older, ledger.JobBurnRow{ProviderID: "kimi", JobBurnMeasured: ledger.JobBurnMeasured{WindowName: "5h", PctPerHour: rate, DurationMin: float64(10 * (i + 1))}})
+	}
+	var newest []ledger.JobBurnRow
+	for range JobBurnWindow {
+		newest = append(newest, ledger.JobBurnRow{ProviderID: "kimi", JobBurnMeasured: ledger.JobBurnMeasured{WindowName: "5h", PctPerHour: 100, DurationMin: 999}})
+	}
+	got := EstimateJobBurn(append(newest, older...))["kimi"]["5h"]
+	if got.Samples != JobBurnWindow || got.PctPerHour != 100 {
+		t.Fatalf("estimate = %+v, want the newest %d rows only", got, JobBurnWindow)
+	}
+	got = EstimateJobBurn(older)["kimi"]["5h"]
+	if !near(got.PctPerHour, 730.0/150) || got.DurationMin != 30 || got.Samples != 5 {
+		t.Fatalf("estimate of 5 rows = %+v, want 4.87%%/h weighted by duration and a median of 30 min", got)
+	}
+	quantized := []ledger.JobBurnRow{
+		{ProviderID: "claude", JobBurnMeasured: ledger.JobBurnMeasured{WindowName: "weekly", PctPerHour: 0, DurationMin: 10}},
+		{ProviderID: "claude", JobBurnMeasured: ledger.JobBurnMeasured{WindowName: "weekly", PctPerHour: 0, DurationMin: 10}},
+		{ProviderID: "claude", JobBurnMeasured: ledger.JobBurnMeasured{WindowName: "weekly", PctPerHour: 6, DurationMin: 10}},
+	}
+	if got := EstimateJobBurn(quantized)["claude"]["weekly"]; !near(got.PctPerHour, 2) {
+		t.Fatalf("integer-percent steps seen by one job in three = %+v, want 2%%/h, not a median of 0", got)
+	}
+}
+
+func TestQuotaBrakeCountsTheJobsAlreadyRunningOnThePool(t *testing.T) {
+	cfg := baseConfig()
+	for _, id := range []string{"kimi", "agy"} {
+		p := cfg.Providers[id]
+		p.SharedQuotaPool, p.MaxConcurrent = "pool", 0
+		cfg.Providers[id] = p
+	}
+	burn := map[string]map[string]JobBurn{
+		"kimi": {"5h": {PctPerHour: 10, DurationMin: 60}},
+		"agy":  {"5h": {PctPerHour: 20, DurationMin: 60}},
+	}
+	decide := func(kimiActive, agyActive int, used float64) Candidate {
+		ps := snapshot(cfg, func(m map[string]*Provider) {
+			m["kimi"].ActiveJobs, m["agy"].ActiveJobs = kimiActive, agyActive
+			setWindow(m["kimi"], "5h", used, now.Add(3*time.Hour))
+			setWindow(m["agy"], "5h", used, now.Add(3*time.Hour))
+		})
+		d, err := Select(Request{Job: Job{ID: "j", Role: "gameplay"}, Trigger: TriggerInitial, Now: now, Config: cfg, Providers: ps, JobBurn: burn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return candidate(t, d, "kimi")
+	}
+	if c := decide(5, 0, 30); c.Status == StatusRejected {
+		t.Errorf("30%% + 6 jobs x 10%%/h x 1h = 90%%, below reserve 98%%: %v", c.Rejections)
+	}
+	if c := decide(5, 1, 30); c.Status != StatusRejected || !strings.Contains(c.Rejections[0], "quota brake: window 5h at 30.0% with 6 running") {
+		t.Errorf("30%% + 5x10 + 1x20 + 10 = 110%%, want a quota brake: %+v", c.Rejections)
+	}
+	if c := decide(0, 0, 30); c.Status == StatusRejected || c.MaxConcurrent != 0 {
+		t.Errorf("an idle provider without max_concurrent must stay eligible: %+v", c)
+	}
+	delete(burn, "kimi")
+	if c := decide(50, 0, 30); c.Status == StatusRejected {
+		t.Errorf("without a measurement for kimi there is no brake and no fixed cap: %v", c.Rejections)
+	}
+}

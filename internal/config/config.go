@@ -260,9 +260,6 @@ func (c *Config) applyDefaults() {
 		if p.CostClass == "" {
 			p.CostClass = "subscription"
 		}
-		if p.MaxConcurrent == 0 {
-			p.MaxConcurrent = 1
-		}
 		if p.Sensor.Mode == "" {
 			p.Sensor.Mode = "auto"
 		}
@@ -384,8 +381,8 @@ func (c *Config) validateProvider(id string, p Provider) []error {
 			add("%s = %d, want 1..5", name, v)
 		}
 	}
-	if p.MaxConcurrent < 1 {
-		add("max_concurrent = %d, want >= 1", p.MaxConcurrent)
+	if p.MaxConcurrent < 0 {
+		add("max_concurrent = %d, want >= 0 (0 or unset: no fixed cap)", p.MaxConcurrent)
 	}
 	if p.APIKeyEnv != "" && !envName.MatchString(p.APIKeyEnv) {
 		add("api_key_env must name an environment variable (A-Z, 0-9, _), never hold the key itself")

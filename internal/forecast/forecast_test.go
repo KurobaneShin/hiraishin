@@ -233,3 +233,34 @@ func TestNextResetRejectsUnsupportedSpecs(t *testing.T) {
 		}
 	}
 }
+
+func TestJobBurnSharesEachIntervalWithTheJobsRunningThen(t *testing.T) {
+	samples := linear(t0, 10, 12, 2*time.Minute, time.Hour, t0.Add(4*time.Hour))
+	job := Span{From: t0, To: t0.Add(time.Hour)}
+	alone, ok := JobBurn(samples, job, nil)
+	if !ok || !near(alone, 12, 1e-9) {
+		t.Fatalf("job alone = %v ok=%v, want the whole 12%%/h", alone, ok)
+	}
+	other := Span{From: t0.Add(30 * time.Minute), To: t0.Add(2 * time.Hour)}
+	shared, ok := JobBurn(samples, job, []Span{other})
+	if !ok || !near(shared, 9, 1e-9) {
+		t.Fatalf("job sharing its second half = %v ok=%v, want 9%%/h (12 then 6)", shared, ok)
+	}
+	running := Span{From: t0.Add(50 * time.Minute)}
+	if got, ok := JobBurn(samples, Span{From: t0, To: t0.Add(40 * time.Minute)}, []Span{running}); !ok || !near(got, 12, 1e-9) {
+		t.Fatalf("a job that starts after this one ends must not share = %v ok=%v", got, ok)
+	}
+}
+
+func TestJobBurnSkipsResetsAndNeedsMinJobSpan(t *testing.T) {
+	first := linear(t0, 80, 12, 2*time.Minute, 30*time.Minute, t0.Add(31*time.Minute))
+	second := linear(t0.Add(32*time.Minute), 0, 12, 2*time.Minute, 28*time.Minute, t0.Add(5*time.Hour))
+	got, ok := JobBurn(append(first, second...), Span{From: t0, To: t0.Add(time.Hour)}, nil)
+	if !ok || !near(got, 12, 1e-9) {
+		t.Fatalf("burn across a reset = %v ok=%v, want 12", got, ok)
+	}
+	short := linear(t0, 10, 12, 2*time.Minute, 2*time.Minute, t0.Add(4*time.Hour))
+	if _, ok := JobBurn(short, Span{From: t0, To: t0.Add(2 * time.Minute)}, nil); ok {
+		t.Error("one sample interval is below MinJobSpan and must not count")
+	}
+}

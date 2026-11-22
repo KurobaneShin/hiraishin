@@ -67,7 +67,21 @@
             "type": "integer"
           },
           "max_concurrent": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0
+          },
+          "job_burn": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pct_per_hour", "duration_min", "samples"],
+              "properties": {
+                "pct_per_hour": {"type": "number"},
+                "duration_min": {"type": "number"},
+                "samples": {"type": "integer"}
+              }
+            }
           },
           "cooldown_until": {
             "type": "string",

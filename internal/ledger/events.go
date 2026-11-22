@@ -38,6 +38,7 @@ const (
 	KindLearnFrozen        Kind = "learning.frozen"
 	KindLearnUnfrozen      Kind = "learning.unfrozen"
 	KindLearnReset         Kind = "learning.reset"
+	KindJobBurnMeasured    Kind = "quota.job_burn"
 )
 
 type Payload interface{ Kind() Kind }
@@ -311,3 +312,12 @@ func (LearnFrozen) Kind() Kind { return KindLearnFrozen }
 func (LearnUnfrozen) Kind() Kind { return KindLearnUnfrozen }
 
 func (LearnReset) Kind() Kind { return KindLearnReset }
+
+type JobBurnMeasured struct {
+	AttemptID   string  `json:"attempt_id"`
+	WindowName  string  `json:"window_name"`
+	PctPerHour  float64 `json:"pct_per_hour"`
+	DurationMin float64 `json:"duration_min"`
+}
+
+func (JobBurnMeasured) Kind() Kind { return KindJobBurnMeasured }

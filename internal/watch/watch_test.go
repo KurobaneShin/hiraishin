@@ -634,3 +634,35 @@ func TestWindowResetHonoursTheFixedResetCron(t *testing.T) {
 		t.Fatalf("reset = %v, want 03:00 UTC from the cron", at)
 	}
 }
+
+func TestCompletedJobRecordsItsBurnPerWindow(t *testing.T) {
+	f := setup(t, map[string]string{"kimi": `while [ ! -f go ]; do sleep 0.05; done`})
+	job := f.submit("default")
+	_, atts := f.job(job.ID)
+	if len(atts) != 1 {
+		t.Fatalf("attempts = %d, want 1\n%s", len(atts), f.dump())
+	}
+	start := atts[0].StartedAt
+	reset := start.Add(4 * time.Hour)
+	var evs []ledger.Event
+	for i := range 10 {
+		used := 10 + float64(i)
+		evs = append(evs, ledger.Event{TS: start.Add(time.Minute + time.Duration(i)*2*time.Minute), ProviderID: "kimi", Source: ledger.SourceSensor,
+			Payload: ledger.QuotaSampled{WindowName: "5h", WindowKind: "rolling", UsedPct: &used, ResetsAt: reset, Confidence: ledger.ConfidenceExact}})
+	}
+	if err := f.e.Ledger.Append(context.Background(), evs...); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.add(20 * time.Minute)
+	if err := os.WriteFile(filepath.Join(job.WorktreePath, "go"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	burns, err := f.e.Ledger.Reader().JobBurns(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(burns) != 1 || burns[0].ProviderID != "kimi" || burns[0].WindowName != "5h" || burns[0].PctPerHour < 29.99 || burns[0].PctPerHour > 30.01 || burns[0].DurationMin < 19.99 {
+		t.Fatalf("job burns = %+v, want one 5h measurement of 30%%/h over 20 min", burns)
+	}
+}

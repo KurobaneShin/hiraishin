@@ -134,3 +134,41 @@ func wallClock(year int, month time.Month, day, hour, minute int, loc *time.Loca
 	skipped := time.Duration(hour-at.Hour())*time.Hour + time.Duration(minute-at.Minute())*time.Minute
 	return at.Add(skipped)
 }
+
+const MinJobSpan = 5 * time.Minute
+
+type Span struct {
+	From time.Time
+	To   time.Time
+}
+
+func (s Span) covers(at time.Time) bool {
+	return !at.Before(s.From) && (s.To.IsZero() || at.Before(s.To))
+}
+
+func JobBurn(samples []Sample, job Span, others []Span) (float64, bool) {
+	sorted := slices.Clone(samples)
+	slices.SortStableFunc(sorted, func(a, b Sample) int { return a.At.Compare(b.At) })
+	var share float64
+	var covered time.Duration
+	for i := 1; i < len(sorted); i++ {
+		prev, cur := sorted[i-1], sorted[i]
+		dt := cur.At.Sub(prev.At)
+		if dt <= 0 || prev.At.Before(job.From) || cur.At.After(job.To) || cur.UsedPct < prev.UsedPct || !sameReset(cur.ResetsAt, prev.ResetsAt) {
+			continue
+		}
+		mid := prev.At.Add(dt / 2)
+		running := 1
+		for _, o := range others {
+			if o.covers(mid) {
+				running++
+			}
+		}
+		share += (cur.UsedPct - prev.UsedPct) / float64(running)
+		covered += dt
+	}
+	if covered < MinJobSpan {
+		return 0, false
+	}
+	return share / covered.Hours(), true
+}

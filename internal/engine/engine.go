@@ -145,6 +145,14 @@ func (e *Engine) ForecastSnapshot(ctx context.Context, tx *ledger.Tx) ([]schedul
 	return scheduler.AttachForecasts(e.Cfg, providers, samples, now), nil
 }
 
+func (e *Engine) JobBurn(ctx context.Context, tx *ledger.Tx) (map[string]map[string]scheduler.JobBurn, error) {
+	rows, err := tx.JobBurns(ctx, scheduler.JobBurnWindow)
+	if err != nil {
+		return nil, err
+	}
+	return scheduler.EstimateJobBurn(rows), nil
+}
+
 type TierFloor struct {
 	Tier   int
 	Reason string
@@ -171,11 +179,15 @@ func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, t
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err
 	}
+	burn, err := e.JobBurn(ctx, tx)
+	if err != nil {
+		return scheduler.Decision{}, ledger.Event{}, err
+	}
 	d, err := scheduler.Select(scheduler.Request{
 		Job:     scheduler.Job{ID: job.ID, Role: job.Role, PinnedProvider: job.PinnedProvider, Exclude: exclude},
 		Trigger: trigger, Now: e.Now(), Config: e.Cfg, RuntimeProfile: profile, Prefers: prefers, Providers: providers,
 		LearnDeltas:    scheduler.LearnDeltas(e.Cfg.Learning, learned),
-		MinQualityTier: floor.Tier, MinQualityTierReason: floor.Reason,
+		MinQualityTier: floor.Tier, MinQualityTierReason: floor.Reason, JobBurn: burn,
 	})
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err

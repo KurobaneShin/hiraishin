@@ -13,7 +13,8 @@ const routingHelp = `How hiraishin decides which agent runs a job.
    - disabled, paused, draining, exhausted or in cooldown
    - not in the role's allowed_providers, or listed in deny_providers
    - quality_tier below the role's min_quality_tier
-   - every slot busy (see Slots)
+   - every slot busy, or the quota brake says one more job would run the
+     pool out (see Slots)
    - any quota window at or above reserve_used_pct (default 98%);
      a failover may go past it unless reserve_allow_failover = false
    - the job is pinned to another provider (hiraishin pin)
@@ -49,9 +50,18 @@ const routingHelp = `How hiraishin decides which agent runs a job.
    filter, the job waits and is routed again at the earliest reset.
 
 Slots
-  max_concurrent is how many jobs one provider runs at the same time.
-  "1/2 jobs" in status means 1 running and room for 1 more. A provider with
-  every slot busy is skipped by the filter.
+  max_concurrent is an optional cap on how many jobs one provider runs at the
+  same time; unset means no fixed cap.
+  "1/2 jobs" in status means 1 running and room for 1 more; "3 jobs" means 3
+  running and no fixed cap. A provider with every slot busy is skipped.
+
+  Quota brake: when a job attempt ends, the watcher records how fast each
+  quota window rose while it ran, split between the jobs running on the pool
+  at the time ("per job 5h 4.1%/h" in status, newest 20 weighted by length). A
+  new job is refused when used + (running jobs + 1) x burn per job x
+  min(time to reset, typical job length) reaches reserve_used_pct. Your own
+  use of the same account counts as job use, so the estimate errs high.
+  Without measurements there is no brake.
 
 Pools
   Providers with the same shared_quota_pool draw from one subscription, for

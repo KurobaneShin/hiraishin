@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,15 +32,16 @@ type statusWindow struct {
 }
 
 type statusProvider struct {
-	ID            string         `json:"id"`
-	Harness       string         `json:"harness"`
-	Pool          string         `json:"pool,omitempty"`
-	State         string         `json:"state"`
-	ActiveJobs    int            `json:"active_jobs"`
-	MaxConcurrent int            `json:"max_concurrent"`
-	CooldownUntil time.Time      `json:"cooldown_until,omitzero"`
-	Windows       []statusWindow `json:"windows"`
-	LastError     string         `json:"last_error,omitempty"`
+	ID            string                       `json:"id"`
+	Harness       string                       `json:"harness"`
+	Pool          string                       `json:"pool,omitempty"`
+	State         string                       `json:"state"`
+	ActiveJobs    int                          `json:"active_jobs"`
+	MaxConcurrent int                          `json:"max_concurrent"`
+	JobBurn       map[string]scheduler.JobBurn `json:"job_burn,omitempty"`
+	CooldownUntil time.Time                    `json:"cooldown_until,omitzero"`
+	Windows       []statusWindow               `json:"windows"`
+	LastError     string                       `json:"last_error,omitempty"`
 }
 
 type statusDoc struct {
@@ -138,6 +141,10 @@ func loadStatus(ctx context.Context, e *engine.Engine, now time.Time) (statusDoc
 	if err != nil {
 		return statusDoc{}, nil, err
 	}
+	burn, err := e.JobBurn(ctx, r)
+	if err != nil {
+		return statusDoc{}, nil, err
+	}
 	rows, err := r.Providers(ctx)
 	if err != nil {
 		return statusDoc{}, nil, err
@@ -150,10 +157,10 @@ func loadStatus(ctx context.Context, e *engine.Engine, now time.Time) (statusDoc
 	if err != nil {
 		return statusDoc{}, nil, err
 	}
-	return buildStatus(snap, rows, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, now), jobs, nil
+	return buildStatus(snap, rows, burn, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, now), jobs, nil
 }
 
-func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, warn float64, profile string, jobs []ledger.JobRow, now time.Time) statusDoc {
+func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, burn map[string]map[string]scheduler.JobBurn, warn float64, profile string, jobs []ledger.JobRow, now time.Time) statusDoc {
 	lastErr := map[string]string{}
 	harness := map[string]string{}
 	for _, r := range rows {
@@ -165,7 +172,7 @@ func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, warn floa
 	}
 	for _, p := range snap {
 		sp := statusProvider{ID: p.ID, Harness: cmp.Or(harness[p.ID], p.Config.Harness), Pool: p.Config.SharedQuotaPool, State: scheduler.EffectiveState(p, warn, now),
-			ActiveJobs: p.ActiveJobs, MaxConcurrent: p.Config.MaxConcurrent, Windows: []statusWindow{}}
+			ActiveJobs: p.ActiveJobs, MaxConcurrent: p.Config.MaxConcurrent, JobBurn: burn[p.ID], Windows: []statusWindow{}}
 		if p.CooldownUntil.After(now) {
 			sp.CooldownUntil = p.CooldownUntil
 		}
@@ -219,7 +226,7 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 		}
 		for _, p := range group {
 			dot, color := stateStyle(p.State)
-			fmt.Fprintf(&b, "   %s %-*s  %s  %s", pal.paint(color, dot), nameWidth, clean(p.ID), pal.paint(color, fmt.Sprintf("%-11s", strings.ToLower(strings.ReplaceAll(clean(p.State), "_", " ")))), pal.paint(dim, fmt.Sprintf("%d/%d jobs", p.ActiveJobs, p.MaxConcurrent)))
+			fmt.Fprintf(&b, "   %s %-*s  %s  %s", pal.paint(color, dot), nameWidth, clean(p.ID), pal.paint(color, fmt.Sprintf("%-11s", strings.ToLower(strings.ReplaceAll(clean(p.State), "_", " ")))), pal.paint(dim, jobsLabel(p)))
 			if !p.CooldownUntil.IsZero() {
 				fmt.Fprintf(&b, "  %s", pal.paint(yellow, "cooldown until "+p.CooldownUntil.Local().Format("15:04")))
 			}
@@ -325,4 +332,21 @@ func truncate(s string, n int) string {
 		return string(r[:n-1]) + "…"
 	}
 	return s
+}
+
+func jobsLabel(p statusProvider) string {
+	label := fmt.Sprintf("%d jobs", p.ActiveJobs)
+	if p.MaxConcurrent > 0 {
+		label = fmt.Sprintf("%d/%d jobs", p.ActiveJobs, p.MaxConcurrent)
+	}
+	names := slices.Sorted(maps.Keys(p.JobBurn))
+	var parts []string
+	for _, name := range names {
+		b := p.JobBurn[name]
+		parts = append(parts, fmt.Sprintf("%s %.2g%%/h", clean(name), b.PctPerHour))
+	}
+	if len(parts) > 0 {
+		label += fmt.Sprintf(" · per job %s (%d measured, ~%s)", strings.Join(parts, " "), p.JobBurn[names[0]].Samples, duration(time.Duration(p.JobBurn[names[0]].DurationMin*float64(time.Minute))))
+	}
+	return label
 }
