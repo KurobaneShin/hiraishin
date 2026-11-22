@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/KurobaneShin/hiraishin/internal/engine"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 	"github.com/KurobaneShin/hiraishin/internal/watch"
@@ -70,24 +72,8 @@ func statusCmd(a *app) *cobra.Command {
 				}
 			}
 			load := func() (statusDoc, error) {
-				r := e.Ledger.Reader()
-				snap, err := e.Snapshot(ctx, r)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				rows, err := r.Providers(ctx)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				profile, err := r.Profile(ctx)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				jobs, err := r.Jobs(ctx, ledger.JobQueuedState, ledger.JobDispatchingState, ledger.JobRunningState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				return buildStatus(snap, rows, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, a.env.Now()), nil
+				doc, _, err := loadStatus(ctx, e, a.env.Now())
+				return doc, err
 			}
 			live := !asJSON && len(due) > 0 && isTerminal(out)
 			if len(due) > 0 && !live {
@@ -133,6 +119,27 @@ func statusCmd(a *app) *cobra.Command {
 	return cmd
 }
 
+func loadStatus(ctx context.Context, e *engine.Engine, now time.Time) (statusDoc, []ledger.JobRow, error) {
+	r := e.Ledger.Reader()
+	snap, err := e.Snapshot(ctx, r)
+	if err != nil {
+		return statusDoc{}, nil, err
+	}
+	rows, err := r.Providers(ctx)
+	if err != nil {
+		return statusDoc{}, nil, err
+	}
+	profile, err := r.Profile(ctx)
+	if err != nil {
+		return statusDoc{}, nil, err
+	}
+	jobs, err := r.Jobs(ctx, ledger.JobQueuedState, ledger.JobDispatchingState, ledger.JobRunningState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState)
+	if err != nil {
+		return statusDoc{}, nil, err
+	}
+	return buildStatus(snap, rows, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, now), jobs, nil
+}
+
 func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, warn float64, profile string, jobs []ledger.JobRow, now time.Time) statusDoc {
 	lastErr := map[string]string{}
 	harness := map[string]string{}
@@ -172,48 +179,14 @@ const barWidth = 24
 
 func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palette) error {
 	var b strings.Builder
-	var pools []string
-	members := map[string][]statusProvider{}
-	nameWidth := 0
-	nearLimit, unavailable := 0, 0
-	for _, p := range doc.Providers {
-		pool := cmp.Or(p.Pool, p.ID)
-		if _, seen := members[pool]; !seen {
-			pools = append(pools, pool)
-		}
-		members[pool] = append(members[pool], p)
-		nameWidth = max(nameWidth, len(p.ID))
-		switch p.State {
-		case ledger.StateAvailable:
-		case ledger.StateDegraded:
-			nearLimit++
-		default:
-			unavailable++
-		}
-	}
-	fmt.Fprintf(&b, "%s  profile %s %s %d providers", pal.paint(bold, "hiraishin"), pal.paint(cyan, clean(doc.Profile)), pal.paint(dim, "·"), len(doc.Providers))
-	if nearLimit > 0 {
-		fmt.Fprintf(&b, " %s %s", pal.paint(dim, "·"), pal.paint(yellow, fmt.Sprintf("%d near limit", nearLimit)))
-	}
-	if unavailable > 0 {
-		fmt.Fprintf(&b, " %s %s", pal.paint(dim, "·"), pal.paint(red, fmt.Sprintf("%d unavailable", unavailable)))
-	}
-	b.WriteString("\n")
+	pools, members, nameWidth := groupPools(doc.Providers)
+	b.WriteString(statusHeader(doc, pal) + "\n")
 	for _, pool := range pools {
 		group := members[pool]
 		fmt.Fprintf(&b, "\n %s\n", pal.paint(bold, clean(pool)))
-		var windows []statusWindow
-		for _, p := range group {
-			if len(p.Windows) > 0 {
-				windows = p.Windows
-				break
-			}
-		}
-		if len(windows) == 0 {
-			windows = []statusWindow{{Name: "usage"}}
-		}
+		_, windows := poolWindows(group)
 		for _, w := range windows {
-			fmt.Fprintf(&b, "   %-7s %s %s", clean(w.Name), bar(w.UsedPct, warn, reserve, pal), pal.paint(level(w.UsedPct, warn, reserve), fmt.Sprintf("%4s", percent(w.UsedPct))))
+			fmt.Fprintf(&b, "   %-7s %s %s", clean(w.Name), bar(w.UsedPct, barWidth, warn, reserve, pal), pal.paint(level(w.UsedPct, warn, reserve), fmt.Sprintf("%4s", percent(w.UsedPct))))
 			if w.ResetsInSeconds != nil {
 				fmt.Fprintf(&b, "  %s", pal.paint(dim, "resets "+duration(time.Duration(*w.ResetsInSeconds)*time.Second)))
 			}
@@ -248,12 +221,57 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 	return err
 }
 
-func bar(used *float64, warn, reserve float64, pal palette) string {
-	if used == nil {
-		return pal.paint(dim, strings.Repeat("·", barWidth))
+func groupPools(providers []statusProvider) ([]string, map[string][]statusProvider, int) {
+	var pools []string
+	members := map[string][]statusProvider{}
+	nameWidth := 0
+	for _, p := range providers {
+		pool := cmp.Or(p.Pool, p.ID)
+		if _, seen := members[pool]; !seen {
+			pools = append(pools, pool)
+		}
+		members[pool] = append(members[pool], p)
+		nameWidth = max(nameWidth, len(p.ID))
 	}
-	n := min(barWidth, int(math.Round(*used/100*barWidth)))
-	return pal.paint(level(used, warn, reserve), strings.Repeat("█", n)) + pal.paint(dim, strings.Repeat("░", barWidth-n))
+	return pools, members, nameWidth
+}
+
+func poolWindows(group []statusProvider) (string, []statusWindow) {
+	for _, p := range group {
+		if len(p.Windows) > 0 {
+			return p.ID, p.Windows
+		}
+	}
+	return "", []statusWindow{{Name: "usage"}}
+}
+
+func statusHeader(doc statusDoc, pal palette) string {
+	nearLimit, unavailable := 0, 0
+	for _, p := range doc.Providers {
+		switch p.State {
+		case ledger.StateAvailable:
+		case ledger.StateDegraded:
+			nearLimit++
+		default:
+			unavailable++
+		}
+	}
+	h := fmt.Sprintf("%s  profile %s %s %d providers", pal.paint(bold, "hiraishin"), pal.paint(cyan, clean(doc.Profile)), pal.paint(dim, "·"), len(doc.Providers))
+	if nearLimit > 0 {
+		h += fmt.Sprintf(" %s %s", pal.paint(dim, "·"), pal.paint(yellow, fmt.Sprintf("%d near limit", nearLimit)))
+	}
+	if unavailable > 0 {
+		h += fmt.Sprintf(" %s %s", pal.paint(dim, "·"), pal.paint(red, fmt.Sprintf("%d unavailable", unavailable)))
+	}
+	return h
+}
+
+func bar(used *float64, width int, warn, reserve float64, pal palette) string {
+	if used == nil {
+		return pal.paint(dim, strings.Repeat("·", width))
+	}
+	n := min(width, int(math.Round(*used/100*float64(width))))
+	return pal.paint(level(used, warn, reserve), strings.Repeat("█", n)) + pal.paint(dim, strings.Repeat("░", width-n))
 }
 
 func level(used *float64, warn, reserve float64) string {
