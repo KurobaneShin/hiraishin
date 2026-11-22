@@ -73,16 +73,14 @@ func profileCmd(a *app) *cobra.Command {
 		Short: "Switch the active profile at runtime (stored in the ledger)",
 		Args:  args(1, "<profile>"),
 		RunE: func(cmd *cobra.Command, argv []string) error {
-			e, err := a.appendEvents(cmd.Context(), func(_ context.Context, e *engine.Engine, _ *ledger.Tx) ([]ledger.Event, error) {
-				if _, err := e.Cfg.ProfileWeights(argv[0]); err != nil {
-					return nil, usageError{msg: err.Error()}
-				}
-				return []ledger.Event{{Source: ledger.SourceCLI, Payload: ledger.ProfileSet{Profile: argv[0], By: "cli"}}}, nil
-			})
+			e, err := a.open(cmd.Context())
 			if err != nil {
 				return err
 			}
 			defer func() { _ = e.Close() }()
+			if err := setProfile(cmd.Context(), e, argv[0]); err != nil {
+				return err
+			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Active profile: %s\n", argv[0])
 			return err
 		},
@@ -236,16 +234,7 @@ func (a *app) providerState(ctx context.Context, verb, provider, reason, source 
 		if err := requireProvider(e, provider); err != nil {
 			return nil, err
 		}
-		var p ledger.Payload
-		switch verb {
-		case "pause":
-			p = ledger.Paused{Reason: reason, By: source}
-		case "drain":
-			p = ledger.Draining{Reason: reason, By: source}
-		default:
-			p = ledger.Resumed{By: source}
-		}
-		return []ledger.Event{{ProviderID: provider, Payload: p}}, nil
+		return []ledger.Event{{ProviderID: provider, Payload: providerStatePayload(verb, reason, source)}}, nil
 	})
 	if err != nil {
 		return controlDoc{}, err
@@ -256,4 +245,33 @@ func (a *app) providerState(ctx context.Context, verb, provider, reason, source 
 		return controlDoc{}, err
 	}
 	return controlDoc{SchemaVersion: 1, Provider: provider, State: row.State}, nil
+}
+
+func setProfile(ctx context.Context, e *engine.Engine, profile string) error {
+	if _, err := e.Cfg.ProfileWeights(profile); err != nil {
+		return usageError{msg: err.Error()}
+	}
+	return e.Ledger.Append(ctx, ledger.Event{Source: ledger.SourceCLI, Payload: ledger.ProfileSet{Profile: profile, By: ledger.SourceCLI}})
+}
+
+func setProviderState(ctx context.Context, e *engine.Engine, verb, id, reason string) (string, error) {
+	if err := requireProvider(e, id); err != nil {
+		return "", err
+	}
+	if err := e.Ledger.Append(ctx, ledger.Event{ProviderID: id, Source: ledger.SourceCLI, Payload: providerStatePayload(verb, reason, ledger.SourceCLI)}); err != nil {
+		return "", err
+	}
+	row, err := e.Ledger.Reader().Provider(ctx, id)
+	return row.State, err
+}
+
+func providerStatePayload(verb, reason, by string) ledger.Payload {
+	switch verb {
+	case "pause":
+		return ledger.Paused{Reason: reason, By: by}
+	case "drain":
+		return ledger.Draining{Reason: reason, By: by}
+	default:
+		return ledger.Resumed{By: by}
+	}
 }

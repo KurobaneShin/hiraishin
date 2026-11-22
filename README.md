@@ -43,6 +43,10 @@ hiraishin why job_01J9X4K2
 
 # 7. Override at runtime without editing config
 hiraishin pause kimi-native        # also: drain, resume, prefer <p> --ttl 2h, pin <job> <p>, unpin, cancel <job>
+
+# 8. Live view: window bars, usage trend, reset countdowns, jobs per worktree, recent failovers.
+#    Keys: ↑↓ select a provider, p pause, d drain, r resume, tab next profile, q quit
+hiraishin top
 ```
 
 Exit codes: `0` success, `1` runtime error, `2` usage error (bad flag, argument or provider name).
