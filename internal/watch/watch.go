@@ -70,6 +70,11 @@ func (w *Watcher) Run(ctx context.Context, interval time.Duration, exitWhenIdle 
 
 func (w *Watcher) Tick(ctx context.Context) (int, error) {
 	e := w.engine
+	if reloaded, err := e.Reload(ctx); err != nil {
+		w.log.Warn("preferences not reloaded, keeping the loaded ones", "err", err)
+	} else if reloaded {
+		w.log.Info("preferences reloaded", "path", e.Paths.Config)
+	}
 	if err := e.Maintain(ctx); err != nil {
 		return 0, err
 	}

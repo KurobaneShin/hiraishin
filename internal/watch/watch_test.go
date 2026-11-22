@@ -410,3 +410,33 @@ func TestFailoverPastTheWaitPointsTheNextAgentAtTheOldSession(t *testing.T) {
 		t.Errorf("resume prompt lacks the ai-memory pointer:\n%s", prompt)
 	}
 }
+
+func TestTickReloadsPreferencesWhenTheFileChanges(t *testing.T) {
+	f := setup(t, nil)
+	path := f.e.Paths.Config
+	rewrite := func(body string, mtime time.Time) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tick := func() {
+		t.Helper()
+		if _, err := f.w.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rewrite(cfgText+"[roles.build]\nallowed_providers = [\"agy\"]\nmin_quality_tier = 4\n", time.Now().Add(time.Minute))
+	tick()
+	if _, ok := f.e.Cfg.Roles["build"]; !ok {
+		t.Fatal("watch kept the old preferences after the file changed")
+	}
+	rewrite("not toml [", time.Now().Add(2*time.Minute))
+	tick()
+	if _, ok := f.e.Cfg.Roles["build"]; !ok {
+		t.Fatal("an invalid preferences file replaced the loaded config")
+	}
+}

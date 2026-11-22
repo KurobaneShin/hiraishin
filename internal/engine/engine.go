@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/KurobaneShin/hiraishin/internal/config"
@@ -16,6 +17,7 @@ type Engine struct {
 	Ledger *ledger.Ledger
 	Paths  config.Paths
 	Now    func() time.Time
+	cfgMod time.Time
 }
 
 func Open(ctx context.Context, paths config.Paths, now func() time.Time) (*Engine, error) {
@@ -28,6 +30,9 @@ func Open(ctx context.Context, paths config.Paths, now func() time.Time) (*Engin
 		return nil, err
 	}
 	e := &Engine{Cfg: cfg, Ledger: l, Paths: paths, Now: now}
+	if st, err := os.Stat(paths.Config); err == nil {
+		e.cfgMod = st.ModTime()
+	}
 	if err := e.sync(ctx); err != nil {
 		_ = l.Close()
 		return nil, err
@@ -36,6 +41,28 @@ func Open(ctx context.Context, paths config.Paths, now func() time.Time) (*Engin
 }
 
 func (e *Engine) Close() error { return e.Ledger.Close() }
+
+func (e *Engine) Reload(ctx context.Context) (bool, error) {
+	st, err := os.Stat(e.Paths.Config)
+	if err != nil {
+		return false, err
+	}
+	if st.ModTime().Equal(e.cfgMod) {
+		return false, nil
+	}
+	e.cfgMod = st.ModTime()
+	cfg, err := config.Load(e.Paths.Config)
+	if err != nil {
+		return false, err
+	}
+	old := e.Cfg
+	e.Cfg = cfg
+	if err := e.sync(ctx); err != nil {
+		e.Cfg = old
+		return false, err
+	}
+	return true, nil
+}
 
 func (e *Engine) sync(ctx context.Context) error {
 	return e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
