@@ -68,9 +68,9 @@ func FindDocs(ctx context.Context, q DocQuery) (string, error) {
 		if skipped(h.File, q.Skip) {
 			continue
 		}
-		fmt.Fprintf(&b, "- %s:%d (%s, score %.2f)\n", h.File, h.Line, h.Title, h.Score)
+		fmt.Fprintf(&b, "- %s:%d (%s, score %.2f)\n", defuse(h.File), h.Line, defuse(h.Title), h.Score)
 		for _, line := range snippetLines(h.Snippet) {
-			b.WriteString("  " + line + "\n")
+			b.WriteString("  " + defuse(line) + "\n")
 		}
 	}
 	if b.Len() == 0 {
@@ -105,6 +105,8 @@ func snippetLines(s string) []string {
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+func defuse(untrusted string) string { return strings.ReplaceAll(untrusted, "</", "< /") }
 
 func lexTerms(s string) string {
 	clean := strings.Map(func(r rune) rune {

@@ -170,7 +170,7 @@ func (g *Graph) Subgraph(files []string, tokenBudget int) string {
 	}
 	for _, id := range frontier {
 		if name := g.nodes[id].CommunityName; name != "" {
-			communities[name] = true
+			communities[defuse(name)] = true
 		}
 	}
 	seen := map[int]bool{}
@@ -184,7 +184,7 @@ func (g *Graph) Subgraph(files []string, tokenBudget int) string {
 				}
 				seen[i] = true
 				l := g.links[i]
-				edges = append(edges, fmt.Sprintf("- %s %s %s", g.describe(l.Source), cmp.Or(l.Relation, "links"), g.describe(l.Target)))
+				edges = append(edges, fmt.Sprintf("- %s %s %s", g.describe(l.Source), defuse(cmp.Or(l.Relation, "links")), g.describe(l.Target)))
 				other := l.Target
 				if other == id {
 					other = l.Source
@@ -219,13 +219,13 @@ func (g *Graph) Subgraph(files []string, tokenBudget int) string {
 func (g *Graph) describe(id string) string {
 	n, ok := g.nodes[id]
 	if !ok {
-		return id
+		return defuse(id)
 	}
-	label := cmp.Or(n.Label, n.ID)
+	label := defuse(cmp.Or(n.Label, n.ID))
 	if n.SourceFile == "" {
 		return label
 	}
-	return label + " (" + n.SourceFile + ")"
+	return label + " (" + defuse(n.SourceFile) + ")"
 }
 
 func dedupe(s []string) []string {
