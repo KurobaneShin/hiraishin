@@ -146,7 +146,7 @@ config_dir = ""
 name = "5h"                    # Identifier in ledger & status table
 kind = "rolling"               # "rolling" | "fixed_reset" | "credit_pool" | "metered"
 duration_hours = 5             # Used for rolling window reset estimates
-# fixed_reset_cron = "0 0 * * *"   # Optional for daily/weekly fixed resets
+# fixed_reset_cron = "0 0 * * *"   # Optional for daily/weekly fixed resets: "M H * * DOW", DOW 0-6 or *
 # fixed_reset_tz   = "America/Los_Angeles"
 
 # Sensor chain order for this provider (first working tier wins).

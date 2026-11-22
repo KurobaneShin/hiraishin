@@ -86,6 +86,12 @@ func TestValidationErrors(t *testing.T) {
 			return strings.Replace(s, "[[providers.a.windows]]", "[providers.a.sensor]\npoll_interval_sec = 10\n[[providers.a.windows]]", 1)
 		}, "poll_interval_sec = 10"},
 		{"rolling without duration", func(s string) string { return strings.Replace(s, "duration_hours = 5", "", 1) }, "duration_hours > 0"},
+		{"bad fixed reset cron", func(s string) string {
+			return strings.Replace(s, "duration_hours = 5", "duration_hours = 5\nfixed_reset_cron = \"0 0 1 * *\"", 1)
+		}, "fixed_reset_cron \"0 0 1 * *\""},
+		{"bad fixed reset tz", func(s string) string {
+			return strings.Replace(s, "duration_hours = 5", "duration_hours = 5\nfixed_reset_cron = \"0 0 * * *\"\nfixed_reset_tz = \"Mars/Olympus\"", 1)
+		}, "fixed_reset_tz \"Mars/Olympus\""},
 		{"unknown profile", func(s string) string { return s + "\n[general]\nactive_profile = \"yolo\"\n" }, "unknown profile"},
 		{"config_dir on kimi", func(s string) string {
 			return strings.Replace(s, "speed_tier = 4", "speed_tier = 4\nconfig_dir = \"~/k\"", 1)

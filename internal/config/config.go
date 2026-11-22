@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 )
 
 const SchemaVersion = 1
@@ -378,6 +380,11 @@ func (c *Config) validateProvider(id string, p Provider) []error {
 		}
 		if w.Kind == "rolling" && w.DurationHours <= 0 {
 			add("window %q: rolling windows need duration_hours > 0", w.Name)
+		}
+		if w.FixedResetCron != "" {
+			if _, err := forecast.NextReset(w.FixedResetCron, w.FixedResetTZ, time.Time{}); err != nil {
+				add("window %q: %v", w.Name, err)
+			}
 		}
 	}
 	return errs
