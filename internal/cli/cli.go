@@ -86,6 +86,7 @@ func newRoot(a *app) *cobra.Command {
 		initCmd(a), runCmd(a), watchCmd(a), cancelCmd(a), statusCmd(a), whyCmd(a),
 		profileCmd(a), preferCmd(a), pinCmd(a), unpinCmd(a), routingTopic(),
 		providerStateCmd(a, "pause"), providerStateCmd(a, "drain"), providerStateCmd(a, "resume"),
+		doctorCmd(a), ledgerCmd(a),
 		versionCmd(),
 	)
 	return root

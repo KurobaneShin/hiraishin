@@ -18,6 +18,8 @@ func TestRun(t *testing.T) {
 		{name: "no args", args: nil, wantCode: 0, wantOut: "Usage:"},
 		{name: "version", args: []string{"version"}, wantCode: 0, wantOut: "hiraishin "},
 		{name: "help", args: []string{"--help"}, wantCode: 0, wantOut: "Commands:"},
+		{name: "doctor help", args: []string{"doctor", "--help"}, wantCode: 0, wantOut: "Pre-flight check"},
+		{name: "ledger archive help", args: []string{"ledger", "archive", "--help"}, wantCode: 0, wantOut: "archive file"},
 		{name: "unknown", args: []string{"nope"}, wantCode: 2, wantErr: "unknown command"},
 	}
 	for _, tt := range tests {
