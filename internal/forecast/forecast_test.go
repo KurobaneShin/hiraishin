@@ -62,6 +62,17 @@ func TestBurnRateSkipsResetBoundaries(t *testing.T) {
 	}
 }
 
+func TestBurnRateToleratesSubSecondResetJitter(t *testing.T) {
+	samples := linear(t0, 20, 6, 2*time.Minute, time.Hour, t0.Add(3*time.Hour))
+	for i := range samples {
+		samples[i].ResetsAt = samples[i].ResetsAt.Add(time.Duration(i%7) * 9 * time.Millisecond)
+	}
+	got, ok := BurnRate(samples)
+	if !ok || !near(got, 6, 1e-9) {
+		t.Fatalf("BurnRate with resets_at jittering by milliseconds = %v ok=%v, want 6", got, ok)
+	}
+}
+
 func TestBurnRateSortsAndIgnoresDuplicateTimestamps(t *testing.T) {
 	s := linear(t0, 0, 6, 10*time.Minute, time.Hour, time.Time{})
 	s = append(s, s[2], s[4])

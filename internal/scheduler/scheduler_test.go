@@ -353,3 +353,30 @@ func TestTaskSizingFloorOnlyRaisesMinQualityTier(t *testing.T) {
 		t.Errorf("a lower floor changed the decision: tier %d: %s", d.MinQualityTier, d.Summary)
 	}
 }
+
+func TestSnapshotShowsOnlyConfiguredWindowsWhenTheConfigListsThem(t *testing.T) {
+	cfg := baseConfig()
+	sonnet := cfg.Providers["sonnet"]
+	sonnet.Windows = []config.Window{{Name: "weekly", Kind: "fixed_reset", DurationHours: 168}}
+	cfg.Providers["sonnet"] = sonnet
+	kimi := cfg.Providers["kimi"]
+	kimi.Windows = nil
+	cfg.Providers["kimi"] = kimi
+	wins := []ledger.WindowRow{
+		{ProviderID: "sonnet", Name: "5h", Kind: "rolling", UsedPct: f(0), SampledAt: now},
+		{ProviderID: "sonnet", Name: "weekly", Kind: "fixed_reset", UsedPct: f(86), SampledAt: now},
+		{ProviderID: "kimi", Name: "daily", Kind: "fixed_reset", UsedPct: f(12), SampledAt: now},
+	}
+	names := map[string][]string{}
+	for _, p := range Snapshot(cfg, nil, wins) {
+		for _, w := range p.Windows {
+			names[p.ID] = append(names[p.ID], w.Name)
+		}
+	}
+	if got := names["sonnet"]; len(got) != 1 || got[0] != "weekly" {
+		t.Errorf("sonnet windows = %v, want only the configured weekly window", got)
+	}
+	if got := names["kimi"]; len(got) != 1 || got[0] != "daily" {
+		t.Errorf("kimi without configured windows = %v, want the observed daily window", got)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -166,9 +167,13 @@ func ParseClaudeUsage(body []byte) ([]Sample, error) {
 		Utilization *float64 `json:"utilization"`
 		ResetsAt    string   `json:"resets_at"`
 	}
+	type limit struct {
+		Kind string `json:"kind"`
+	}
 	var doc struct {
-		FiveHour *window `json:"five_hour"`
-		SevenDay *window `json:"seven_day"`
+		FiveHour *window  `json:"five_hour"`
+		SevenDay *window  `json:"seven_day"`
+		Limits   *[]limit `json:"limits"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, fmt.Errorf("parse claude usage: %w", err)
@@ -176,11 +181,15 @@ func ParseClaudeUsage(body []byte) ([]Sample, error) {
 	if doc.FiveHour == nil && doc.SevenDay == nil {
 		return nil, errors.New("parse claude usage: no five_hour or seven_day window")
 	}
+	hasSessionLimit := doc.FiveHour != nil || doc.Limits == nil || slices.ContainsFunc(*doc.Limits, func(l limit) bool { return l.Kind == "session" })
 	var out []Sample
 	for _, w := range []struct {
 		name, kind string
 		win        *window
 	}{{"5h", "rolling", doc.FiveHour}, {"weekly", "fixed_reset", doc.SevenDay}} {
+		if w.name == "5h" && !hasSessionLimit {
+			continue
+		}
 		s := Sample{Window: w.name, Kind: w.kind, UsedPct: pct(0), Confidence: ledger.ConfidenceExact, Tier: "endpoint"}
 		if w.win != nil && w.win.Utilization != nil {
 			s.UsedPct = pct(*w.win.Utilization)

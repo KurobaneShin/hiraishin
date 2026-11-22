@@ -91,6 +91,9 @@ func mergeWindows(configured []config.Window, seen map[string]ledger.WindowRow) 
 		used[cw.Name] = true
 		out = append(out, w)
 	}
+	if len(configured) > 0 {
+		return out
+	}
 	for name, o := range seen {
 		if !used[name] {
 			out = append(out, Window{Name: name, Kind: o.Kind, UsedPct: o.UsedPct, ResetsAt: o.ResetsAt, Confidence: o.Confidence})

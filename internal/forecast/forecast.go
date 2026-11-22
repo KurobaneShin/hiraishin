@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	Tau      = time.Hour
-	MinSpan  = 30 * time.Minute
-	Lookback = 6 * Tau
+	Tau         = time.Hour
+	MinSpan     = 30 * time.Minute
+	ResetJitter = time.Minute
+	Lookback    = 6 * Tau
 )
 
 type Sample struct {
@@ -37,7 +38,7 @@ func BurnRate(samples []Sample) (float64, bool) {
 	for i := 1; i < len(sorted); i++ {
 		prev, cur := sorted[i-1], sorted[i]
 		dt := cur.At.Sub(prev.At)
-		if dt <= 0 || cur.UsedPct < prev.UsedPct || !cur.ResetsAt.Equal(prev.ResetsAt) {
+		if dt <= 0 || cur.UsedPct < prev.UsedPct || !sameReset(cur.ResetsAt, prev.ResetsAt) {
 			continue
 		}
 		alpha := 1 - math.Exp(-dt.Hours()/Tau.Hours())
@@ -49,6 +50,11 @@ func BurnRate(samples []Sample) (float64, bool) {
 		return 0, false
 	}
 	return ewma / weight, true
+}
+
+func sameReset(a, b time.Time) bool {
+	d := a.Sub(b)
+	return d > -ResetJitter && d < ResetJitter
 }
 
 func Project(samples []Sample, resetsAt, now time.Time) (Forecast, bool) {

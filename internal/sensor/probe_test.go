@@ -175,12 +175,23 @@ func TestParseLiveEndpoints(t *testing.T) {
 	assertSample(t, c[0], "5h", 51, time.Date(2026, 11, 22, 1, 10, 0, 237155000, time.UTC))
 	assertSample(t, c[1], "weekly", 41, time.Date(2026, 11, 24, 4, 0, 0, 237174000, time.UTC))
 
-	idle, err := ParseClaudeUsage(fixture(t, "endpoint/claude_oauth_usage_no_5h.json"))
+	noSession, err := ParseClaudeUsage(fixture(t, "endpoint/claude_oauth_usage_no_5h.json"))
+	if err != nil || len(noSession) != 1 {
+		t.Fatalf("claude plan without a session limit = %+v, %v, want the weekly window only", noSession, err)
+	}
+	assertSample(t, noSession[0], "weekly", 86, time.Date(2026, 11, 25, 1, 59, 59, 525174000, time.UTC))
+
+	idle, err := ParseClaudeUsage([]byte(`{"five_hour":null,"seven_day":{"utilization":10,"resets_at":"2026-11-24T04:00:00Z"},"limits":[{"kind":"session","percent":0},{"kind":"weekly_all","percent":10}]}`))
 	if err != nil || len(idle) != 2 {
-		t.Fatalf("claude without a 5h window = %+v, %v", idle, err)
+		t.Fatalf("claude with an idle session limit = %+v, %v", idle, err)
 	}
 	assertSample(t, idle[0], "5h", 0, time.Time{})
-	assertSample(t, idle[1], "weekly", 86, time.Date(2026, 11, 25, 1, 59, 59, 525174000, time.UTC))
+
+	legacy, err := ParseClaudeUsage([]byte(`{"five_hour":null,"seven_day":{"utilization":10,"resets_at":"2026-11-24T04:00:00Z"}}`))
+	if err != nil || len(legacy) != 2 {
+		t.Fatalf("claude usage without a limits list = %+v, %v", legacy, err)
+	}
+	assertSample(t, legacy[0], "5h", 0, time.Time{})
 
 	if _, err := ParseClaudeUsage([]byte(`{"five_hour":null,"seven_day":null}`)); err == nil {
 		t.Error("want error when no Claude window is present")
