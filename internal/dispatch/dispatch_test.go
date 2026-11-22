@@ -46,7 +46,7 @@ func TestBuild(t *testing.T) {
 		{name: "codex", p: config.Provider{Harness: config.HarnessCodex, Model: "o3", Effort: "high"},
 			want: []string{"codex", "exec", "--json", "--sandbox", "workspace-write", "--model", "o3", "-c", "model_reasoning_effort=high", promptArg}},
 		{name: "codex resume", p: config.Provider{Harness: config.HarnessCodex, Model: "o3"}, resume: "0199a213-81c0-7800-8aa1-bbab2a035a53",
-			want: []string{"codex", "exec", "resume", "0199a213-81c0-7800-8aa1-bbab2a035a53", "--json", "--sandbox", "workspace-write", "--model", "o3", promptArg}},
+			want: []string{"codex", "exec", "--json", "--sandbox", "workspace-write", "--model", "o3", "resume", "0199a213-81c0-7800-8aa1-bbab2a035a53", promptArg}},
 		{name: "gemini", p: config.Provider{Harness: config.HarnessGeminiCLI, Model: "gemini-2.5-pro"},
 			want: []string{"gemini", "-p", promptArg, "--output-format", "stream-json", "--yolo", "--model", "gemini-2.5-pro"}},
 		{name: "gemini resume", p: config.Provider{Harness: config.HarnessGeminiCLI}, resume: "a1b2c3d4-5678-90ab-cdef-1234567890ab",

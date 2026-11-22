@@ -69,14 +69,13 @@ func Build(p config.Provider, worktree, resumeSession string) (Command, error) {
 		opt("--effort", p.Effort)
 		c.Argv = append(c.Argv, "--print", promptArg)
 	case config.HarnessCodex:
-		if resumeSession != "" {
-			c.Argv = []string{"codex", "exec", "resume", resumeSession, "--json", "--sandbox", "workspace-write"}
-		} else {
-			c.Argv = []string{"codex", "exec", "--json", "--sandbox", "workspace-write"}
-		}
+		c.Argv = []string{"codex", "exec", "--json", "--sandbox", "workspace-write"}
 		opt("--model", p.Model)
 		if p.Effort != "" {
 			c.Argv = append(c.Argv, "-c", "model_reasoning_effort="+p.Effort)
+		}
+		if resumeSession != "" {
+			c.Argv = append(c.Argv, "resume", resumeSession)
 		}
 		c.Argv = append(c.Argv, promptArg)
 	case config.HarnessGeminiCLI:

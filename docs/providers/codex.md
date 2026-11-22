@@ -22,13 +22,15 @@ codex exec \
 ### Same-Provider Resume
 
 ```bash
-codex exec resume <thread_id> \
+codex exec \
   --json \
   --sandbox workspace-write \
   [--model <model>] \
   [-c model_reasoning_effort=<effort>] \
-  "<prompt>"
+  resume <thread_id> "<prompt>"
 ```
+
+The `exec` options go before `resume`: the docs only list `--last`, `--all` and `<SESSION_ID>` for the `resume` subcommand, and an option defined on the parent `exec` command is accepted by clap only before its subcommand. `[unverified]` until checked against an installed `codex exec resume --help`.
 
 - **Cross-provider failover (`hiraishin`):** Uses the git worktree checkpoint ([ADR 0004](../adr/0004-worktree-as-checkpoint.md)).
 
