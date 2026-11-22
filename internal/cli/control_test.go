@@ -167,13 +167,45 @@ func TestStatusJSONAndText(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = e.Close()
-	doc := h.run(0, "status", "--json")
+	doc := h.run(0, "status", "--json", "--no-sensors")
 	validate(t, "status.schema.json", doc)
-	text := h.run(0, "status")
-	for _, want := range []string{"kimi", "AVAILABLE", "0/2", "40%", "1h12m", "exact", "agy"} {
+	text := h.run(0, "status", "--no-sensors")
+	for _, want := range []string{"kimi", "available", "0/2", "40%", "resets 1h12m", "agy", "profile burn-expiring-first"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("status text missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "\x1b[") {
+		t.Errorf("status wrote ANSI escapes to a non-terminal:\n%q", text)
+	}
+}
+
+func TestRenderStatusGroupsPoolsAndColorsByThreshold(t *testing.T) {
+	high, low := 90.0, 10.0
+	shared := []statusWindow{{Name: "5h", UsedPct: &low, Confidence: "exact"}, {Name: "weekly", UsedPct: &high, Confidence: "exact"}}
+	doc := statusDoc{Profile: "balanced", Providers: []statusProvider{
+		{ID: "glm-a", Pool: "zai", State: "DEGRADED", MaxConcurrent: 2, Windows: shared},
+		{ID: "glm-b", Pool: "zai", State: "DEGRADED", MaxConcurrent: 2, Windows: shared, LastError: "usage endpoint: HTTP 500"},
+		{ID: "agy", State: "AVAILABLE", MaxConcurrent: 1, Windows: []statusWindow{{Name: "5h", Confidence: "estimated"}}},
+	}}
+	var plain, color bytes.Buffer
+	if err := renderStatus(&plain, doc, 85, 98, palette{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := renderStatus(&color, doc, 85, 98, palette{on: true}); err != nil {
+		t.Fatal(err)
+	}
+	text := plain.String()
+	if n := strings.Count(text, "90%"); n != 1 {
+		t.Errorf("pool windows must print once, got %d:\n%s", n, text)
+	}
+	for _, want := range []string{"zai", "glm-a", "glm-b", "degraded", "usage endpoint: HTTP 500", "agy", "?", "estimated"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("missing %q:\n%s", want, text)
+		}
+	}
+	if !strings.Contains(color.String(), "\x1b[33m") || !strings.Contains(color.String(), "\x1b[32m") {
+		t.Errorf("want yellow for 90%% and green for 10%%:\n%q", color.String())
 	}
 }
 

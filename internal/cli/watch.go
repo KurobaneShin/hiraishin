@@ -37,6 +37,15 @@ func lockWatch(dataDir string) (func(), error) {
 	return func() { _ = f.Close() }, nil
 }
 
+func (a *app) probe() *sensor.Probe {
+	return &sensor.Probe{
+		Client: &http.Client{}, Getenv: a.env.Getenv, Home: a.env.Getenv("HOME"), Now: a.env.Now,
+		Run: func(ctx context.Context, name string, argv ...string) ([]byte, error) {
+			return exec.CommandContext(ctx, name, argv...).Output()
+		},
+	}
+}
+
 func watchCmd(a *app) *cobra.Command {
 	var interval, grace time.Duration
 	var exitWhenIdle, noSensors bool
@@ -59,12 +68,7 @@ func watchCmd(a *app) *cobra.Command {
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
 			var probe *sensor.Probe
 			if !noSensors {
-				probe = &sensor.Probe{
-					Client: &http.Client{}, Getenv: a.env.Getenv, Home: a.env.Getenv("HOME"), Now: a.env.Now,
-					Run: func(ctx context.Context, name string, argv ...string) ([]byte, error) {
-						return exec.CommandContext(ctx, name, argv...).Output()
-					},
-				}
+				probe = a.probe()
 			}
 			log.Info("watching", "ledger", e.Paths.Ledger(), "interval", interval, "sensors", !noSensors)
 			if err := watch.New(e, probe, log, grace).Run(ctx, interval, exitWhenIdle); err != nil {

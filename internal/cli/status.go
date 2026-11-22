@@ -3,13 +3,17 @@ package cli
 import (
 	"cmp"
 	"fmt"
-	"text/tabwriter"
+	"io"
+	"log/slog"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/scheduler"
+	"github.com/KurobaneShin/hiraishin/internal/watch"
 )
 
 type statusWindow struct {
@@ -24,6 +28,7 @@ type statusWindow struct {
 type statusProvider struct {
 	ID            string         `json:"id"`
 	Harness       string         `json:"harness"`
+	Pool          string         `json:"pool,omitempty"`
 	State         string         `json:"state"`
 	ActiveJobs    int            `json:"active_jobs"`
 	MaxConcurrent int            `json:"max_concurrent"`
@@ -41,7 +46,7 @@ type statusDoc struct {
 }
 
 func statusCmd(a *app) *cobra.Command {
-	var asJSON bool
+	var asJSON, noSensors bool
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show providers, quota windows, slots and time to reset",
@@ -55,31 +60,76 @@ func statusCmd(a *app) *cobra.Command {
 			if err := e.Maintain(cmd.Context()); err != nil {
 				return err
 			}
-			r := e.Ledger.Reader()
-			snap, err := e.Snapshot(cmd.Context(), r)
+			ctx, out := cmd.Context(), cmd.OutOrStdout()
+			var w *watch.Watcher
+			var due []string
+			if !noSensors {
+				w = watch.New(e, a.probe(), slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
+				if due, err = w.Due(ctx); err != nil {
+					return err
+				}
+			}
+			load := func() (statusDoc, error) {
+				r := e.Ledger.Reader()
+				snap, err := e.Snapshot(ctx, r)
+				if err != nil {
+					return statusDoc{}, err
+				}
+				rows, err := r.Providers(ctx)
+				if err != nil {
+					return statusDoc{}, err
+				}
+				profile, err := r.Profile(ctx)
+				if err != nil {
+					return statusDoc{}, err
+				}
+				jobs, err := r.Jobs(ctx, ledger.JobQueuedState, ledger.JobDispatchingState, ledger.JobRunningState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState)
+				if err != nil {
+					return statusDoc{}, err
+				}
+				return buildStatus(snap, rows, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, a.env.Now()), nil
+			}
+			live := !asJSON && len(due) > 0 && isTerminal(out)
+			if len(due) > 0 && !live {
+				if err := w.Poll(ctx); err != nil {
+					return err
+				}
+			}
+			doc, err := load()
 			if err != nil {
 				return err
 			}
-			rows, err := r.Providers(cmd.Context())
-			if err != nil {
-				return err
-			}
-			profile, err := r.Profile(cmd.Context())
-			if err != nil {
-				return err
-			}
-			jobs, err := r.Jobs(cmd.Context(), ledger.JobQueuedState, ledger.JobDispatchingState, ledger.JobRunningState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState)
-			if err != nil {
-				return err
-			}
-			doc := buildStatus(snap, rows, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, a.env.Now())
 			if asJSON {
-				return writeJSON(cmd.OutOrStdout(), doc)
+				return writeJSON(out, doc)
 			}
-			return renderStatus(cmd, doc)
+			pal := palette{on: colorEnabled(out, a.env.Getenv)}
+			warn, reserve := e.Cfg.General.WarnUsedPct, e.Cfg.General.ReserveUsedPct
+			var first strings.Builder
+			if err := renderStatus(&first, doc, warn, reserve, pal); err != nil {
+				return err
+			}
+			if live {
+				first.WriteString(pal.paint(dim, "\n refreshing usage: "+strings.Join(due, ", ")+"…") + "\n")
+			}
+			if _, err := io.WriteString(out, first.String()); err != nil || !live {
+				return err
+			}
+			pollErr := w.Poll(ctx)
+			if doc, err = load(); err != nil {
+				return err
+			}
+			var second strings.Builder
+			if err := renderStatus(&second, doc, warn, reserve, pal); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(out, "\x1b[%dA\x1b[J%s", strings.Count(first.String(), "\n"), second.String()); err != nil {
+				return err
+			}
+			return pollErr
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON (schema_version 1)")
+	cmd.Flags().BoolVar(&noSensors, "no-sensors", false, "show the last recorded usage without polling usage endpoints or local logs")
 	return cmd
 }
 
@@ -94,7 +144,7 @@ func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, warn floa
 		doc.Jobs[j.State]++
 	}
 	for _, p := range snap {
-		sp := statusProvider{ID: p.ID, Harness: cmp.Or(harness[p.ID], p.Config.Harness), State: scheduler.EffectiveState(p, warn, now),
+		sp := statusProvider{ID: p.ID, Harness: cmp.Or(harness[p.ID], p.Config.Harness), Pool: p.Config.SharedQuotaPool, State: scheduler.EffectiveState(p, warn, now),
 			ActiveJobs: p.ActiveJobs, MaxConcurrent: p.Config.MaxConcurrent, Windows: []statusWindow{}}
 		if p.CooldownUntil.After(now) {
 			sp.CooldownUntil = p.CooldownUntil
@@ -118,36 +168,113 @@ func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, warn floa
 	return doc
 }
 
-func renderStatus(cmd *cobra.Command, doc statusDoc) error {
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-	_, _ = fmt.Fprintf(w, "Profile: %s\n\nPROVIDER\tSTATE\tSLOTS\tWINDOW\tUSED\tRESETS IN\tCONF\n", doc.Profile)
+const barWidth = 24
+
+func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palette) error {
+	var b strings.Builder
+	var pools []string
+	members := map[string][]statusProvider{}
+	nameWidth := 0
+	notReady := 0
 	for _, p := range doc.Providers {
-		lead := fmt.Sprintf("%s\t%s\t%d/%d", p.ID, p.State, p.ActiveJobs, p.MaxConcurrent)
-		if len(p.Windows) == 0 {
-			_, _ = fmt.Fprintf(w, "%s\t-\t?\t-\t-\n", lead)
+		pool := cmp.Or(p.Pool, p.ID)
+		if _, seen := members[pool]; !seen {
+			pools = append(pools, pool)
 		}
-		for i, win := range p.Windows {
-			if i > 0 {
-				lead = "\t\t"
-			}
-			resets := "-"
-			if win.ResetsInSeconds != nil {
-				resets = duration(time.Duration(*win.ResetsInSeconds) * time.Second)
-			}
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", lead, win.Name, percent(win.UsedPct), resets, cmp.Or(win.Confidence, "-"))
+		members[pool] = append(members[pool], p)
+		nameWidth = max(nameWidth, len(p.ID))
+		if p.State != ledger.StateAvailable {
+			notReady++
 		}
 	}
-	if err := w.Flush(); err != nil {
-		return err
+	fmt.Fprintf(&b, "%s  profile %s %s %d providers", pal.paint(bold, "hiraishin"), pal.paint(cyan, doc.Profile), pal.paint(dim, "·"), len(doc.Providers))
+	if notReady > 0 {
+		fmt.Fprintf(&b, " %s %s", pal.paint(dim, "·"), pal.paint(yellow, fmt.Sprintf("%d not available", notReady)))
+	}
+	b.WriteString("\n")
+	for _, pool := range pools {
+		group := members[pool]
+		fmt.Fprintf(&b, "\n %s\n", pal.paint(bold, pool))
+		var windows []statusWindow
+		for _, p := range group {
+			if len(p.Windows) > 0 {
+				windows = p.Windows
+				break
+			}
+		}
+		if len(windows) == 0 {
+			windows = []statusWindow{{Name: "usage"}}
+		}
+		for _, w := range windows {
+			fmt.Fprintf(&b, "   %-7s %s %s", w.Name, bar(w.UsedPct, warn, reserve, pal), pal.paint(level(w.UsedPct, warn, reserve), fmt.Sprintf("%4s", percent(w.UsedPct))))
+			if w.ResetsInSeconds != nil {
+				fmt.Fprintf(&b, "  %s", pal.paint(dim, "resets "+duration(time.Duration(*w.ResetsInSeconds)*time.Second)))
+			}
+			if w.Confidence != "" && w.Confidence != ledger.ConfidenceExact {
+				fmt.Fprintf(&b, "  %s", pal.paint(dim, w.Confidence))
+			}
+			b.WriteString("\n")
+		}
+		for _, p := range group {
+			dot, color := stateStyle(p.State)
+			fmt.Fprintf(&b, "   %s %-*s  %s  %s", pal.paint(color, dot), nameWidth, p.ID, pal.paint(color, fmt.Sprintf("%-11s", strings.ToLower(strings.ReplaceAll(p.State, "_", " ")))), pal.paint(dim, fmt.Sprintf("%d/%d slots", p.ActiveJobs, p.MaxConcurrent)))
+			if !p.CooldownUntil.IsZero() {
+				fmt.Fprintf(&b, "  %s", pal.paint(yellow, "cooldown until "+p.CooldownUntil.Local().Format("15:04")))
+			}
+			b.WriteString("\n")
+			if p.LastError != "" {
+				fmt.Fprintf(&b, "     %s\n", pal.paint(yellow, "↳ "+truncate(p.LastError, 100)))
+			}
+		}
 	}
 	if len(doc.Jobs) > 0 {
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), "\nJobs:")
+		var parts []string
 		for _, s := range []string{ledger.JobRunningState, ledger.JobDispatchingState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState, ledger.JobQueuedState} {
 			if n := doc.Jobs[s]; n > 0 {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), " %d %s", n, s)
+				parts = append(parts, fmt.Sprintf("%d %s", n, strings.ToLower(strings.ReplaceAll(s, "_", " "))))
 			}
 		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintf(&b, "\n %s %s\n", pal.paint(bold, "jobs"), strings.Join(parts, pal.paint(dim, " · ")))
 	}
-	return nil
+	_, err := io.WriteString(out, b.String())
+	return err
+}
+
+func bar(used *float64, warn, reserve float64, pal palette) string {
+	if used == nil {
+		return pal.paint(dim, strings.Repeat("·", barWidth))
+	}
+	n := min(barWidth, int(math.Round(*used/100*barWidth)))
+	return pal.paint(level(used, warn, reserve), strings.Repeat("█", n)) + pal.paint(dim, strings.Repeat("░", barWidth-n))
+}
+
+func level(used *float64, warn, reserve float64) string {
+	switch {
+	case used == nil:
+		return dim
+	case *used >= reserve:
+		return red
+	case *used >= warn:
+		return yellow
+	}
+	return green
+}
+
+func stateStyle(state string) (string, string) {
+	switch state {
+	case ledger.StateAvailable:
+		return "●", green
+	case ledger.StateDegraded, ledger.StateDraining:
+		return "●", yellow
+	case ledger.StatePaused, "DISABLED":
+		return "○", dim
+	}
+	return "●", red
+}
+
+func truncate(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return s
 }

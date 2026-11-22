@@ -48,6 +48,9 @@
           "harness": {
             "type": "string"
           },
+          "pool": {
+            "type": "string"
+          },
           "state": {
             "enum": [
               "AVAILABLE",

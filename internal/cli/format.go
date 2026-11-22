@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"time"
 )
 
@@ -34,4 +35,41 @@ func writeJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(v)
+}
+
+const (
+	bold   = "1"
+	dim    = "2"
+	red    = "31"
+	green  = "32"
+	yellow = "33"
+	cyan   = "36"
+)
+
+type palette struct{ on bool }
+
+func (p palette) paint(code, s string) string {
+	if !p.on || s == "" {
+		return s
+	}
+	return "\x1b[" + code + "m" + s + "\x1b[0m"
+}
+
+func colorEnabled(w io.Writer, getenv func(string) string) bool {
+	if getenv("NO_COLOR") != "" {
+		return false
+	}
+	if v := getenv("CLICOLOR_FORCE"); v != "" && v != "0" {
+		return true
+	}
+	return isTerminal(w)
+}
+
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
