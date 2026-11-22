@@ -38,7 +38,7 @@ func Build(p config.Provider, worktree, resumeSession string) (Command, error) {
 	}
 	switch p.Harness {
 	case config.HarnessClaudeCode, config.HarnessGLMClaude:
-		c.Argv = []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", worktree}
+		c.Argv = []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--add-dir", worktree}
 		opt("--resume", resumeSession)
 		opt("--model", p.Model)
 		opt("--effort", p.Effort)

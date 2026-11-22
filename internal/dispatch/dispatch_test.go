@@ -25,9 +25,9 @@ func TestBuild(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "claude", p: config.Provider{Harness: config.HarnessClaudeCode, Model: "m", Effort: "high"},
-			want: []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", "/wt", "--model", "m", "--effort", "high"}},
+			want: []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--add-dir", "/wt", "--model", "m", "--effort", "high"}},
 		{name: "glm-claude", p: config.Provider{Harness: config.HarnessGLMClaude, APIKeyEnv: "ZAI_API_KEY"},
-			want:    []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", "/wt"},
+			want:    []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--add-dir", "/wt"},
 			wantEnv: "ANTHROPIC_BASE_URL=" + GLMBaseURL, wantRef: "ANTHROPIC_AUTH_TOKEN=ZAI_API_KEY"},
 		{name: "kimi", p: config.Provider{Harness: config.HarnessKimiNative},
 			want: []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json"}},
@@ -36,7 +36,7 @@ func TestBuild(t *testing.T) {
 		{name: "agy with prefix", p: config.Provider{Harness: config.HarnessAgy, Model: "g", LaunchPrefix: []string{"flock", "~/.agy.lock"}},
 			want: []string{"flock", "~/.agy.lock", "agy", "--mode", "accept-edits", "--dangerously-skip-permissions", "--add-dir", "/wt", "--output-format", "stream-json", "--model", "g", "--print", promptArg}},
 		{name: "claude resume", p: config.Provider{Harness: config.HarnessClaudeCode}, resume: "d0b2f679",
-			want: []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", "/wt", "--resume", "d0b2f679"}},
+			want: []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "auto", "--add-dir", "/wt", "--resume", "d0b2f679"}},
 		{name: "kimi resume", p: config.Provider{Harness: config.HarnessKimiNative}, resume: "session_6149",
 			want: []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json", "--session", "session_6149"}},
 		{name: "opencode resume", p: config.Provider{Harness: config.HarnessOpenCode}, resume: "ses_dfef",

@@ -12,7 +12,7 @@ Verified against local `claude --help` (2026-11-21) and [Run Claude Code program
 claude -p "<prompt>" \
   --model claude-opus-5-5 \
   --effort high \
-  --permission-mode acceptEdits \
+  --permission-mode auto \
   --output-format stream-json \
   --add-dir /path/to/worktree
 ```
@@ -20,6 +20,7 @@ claude -p "<prompt>" \
 - `-p` / `--print`: non-interactive mode; skips workspace trust dialog (only use in trusted worktrees).
 - `--output-format stream-json`: emits NDJSON events (including session ID, token usage, and structured errors) ideal for `hiraishin`'s Failover Watcher.
 - `--permission-mode`: `acceptEdits`, `auto`, `bypassPermissions` (or `--dangerously-skip-permissions` in isolated sandboxes), `dontAsk`, `plan`.
+  hiraishin uses `auto`. Verified on 2026-11-21: under `-p`, `acceptEdits` denies every unlisted Bash call ("This command requires approval", `permission_denials: [Bash]`), so an agent cannot run its tests; `auto` ran `go version` with no denial.
 - `--fallback-model <model>`: built-in intra-Anthropic fallback when a model is busy; `hiraishin` leaves this unset or controlled by user config so cross-provider scheduling remains explicit.
 - `--bg` / `--background`: starts a background session managed via `claude attach|logs|stop|rm`.
 

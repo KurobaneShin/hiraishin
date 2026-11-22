@@ -20,7 +20,7 @@ Z.AI does not ship a standalone terminal-only CLI equivalent to `claude` or `cod
      ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic" \
      ANTHROPIC_AUTH_TOKEN="$ZAI_CODING_API_KEY" \
      claude -p "<prompt>" \
-       --permission-mode acceptEdits \
+       --permission-mode auto \
        --output-format stream-json \
        --add-dir /path/to/worktree
      ```
