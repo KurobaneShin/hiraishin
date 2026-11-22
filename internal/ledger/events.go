@@ -49,6 +49,7 @@ type Event struct {
 
 const (
 	SourceCLI       = "cli"
+	SourceMCP       = "mcp"
 	SourceScheduler = "scheduler"
 	SourceWatcher   = "watcher:regex"
 	SourceSensor    = "sensor"

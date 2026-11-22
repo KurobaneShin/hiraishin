@@ -71,9 +71,13 @@ func (e *Engine) launch(ctx context.Context, job ledger.JobRow, decisionID, prov
 }
 
 func (e *Engine) Queue(ctx context.Context, job ledger.JobRow) (scheduler.Decision, error) {
+	return e.QueueFrom(ctx, job, ledger.SourceCLI)
+}
+
+func (e *Engine) QueueFrom(ctx context.Context, job ledger.JobRow, source string) (scheduler.Decision, error) {
 	var d scheduler.Decision
 	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
-		queued := ledger.Event{JobID: job.ID, Source: ledger.SourceCLI, Payload: ledger.JobQueued{
+		queued := ledger.Event{JobID: job.ID, Source: source, Payload: ledger.JobQueued{
 			Name: job.Name, Role: job.Role, WorktreePath: job.WorktreePath, Branch: job.Branch, BriefPath: job.BriefPath,
 			ReportPath: job.ReportPath, TerminalAdapter: job.TerminalAdapter, PinnedProvider: job.PinnedProvider, NeverSwitch: job.NeverSwitch,
 		}}

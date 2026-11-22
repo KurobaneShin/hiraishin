@@ -12,12 +12,29 @@ import (
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 )
 
+type controlDoc struct {
+	SchemaVersion int    `json:"schema_version"`
+	Provider      string `json:"provider,omitempty"`
+	JobID         string `json:"job_id,omitempty"`
+	State         string `json:"state"`
+}
+
 func (a *app) appendEvents(ctx context.Context, build func(ctx context.Context, e *engine.Engine, tx *ledger.Tx) ([]ledger.Event, error)) (*engine.Engine, error) {
+	return a.appendEventsFrom(ctx, ledger.SourceCLI, build)
+}
+
+func (a *app) appendEventsFrom(ctx context.Context, source string, build func(ctx context.Context, e *engine.Engine, tx *ledger.Tx) ([]ledger.Event, error)) (*engine.Engine, error) {
 	e, err := a.open(ctx)
 	if err != nil {
 		return nil, err
 	}
-	err = e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) { return build(ctx, e, tx) })
+	err = e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
+		evs, err := build(ctx, e, tx)
+		for i := range evs {
+			evs[i].Source = source
+		}
+		return evs, err
+	})
 	if err != nil {
 		_ = e.Close()
 		return nil, err
@@ -114,28 +131,46 @@ func preferCmd(a *app) *cobra.Command {
 }
 
 func pinCmd(a *app) *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "pin <job_id> <provider>",
 		Short: "Pin a job to one provider and block automatic switching",
 		Args:  args(2, "<job_id> <provider>"),
 		RunE: func(cmd *cobra.Command, argv []string) error {
-			e, err := a.appendEvents(cmd.Context(), func(ctx context.Context, e *engine.Engine, tx *ledger.Tx) ([]ledger.Event, error) {
-				if err := requireProvider(e, argv[1]); err != nil {
-					return nil, err
-				}
-				if _, err := tx.Job(ctx, argv[0]); err != nil {
-					return nil, err
-				}
-				return []ledger.Event{{JobID: argv[0], Source: ledger.SourceCLI, Payload: ledger.JobPinned{Provider: argv[1]}}}, nil
-			})
+			doc, err := a.pin(cmd.Context(), argv[0], argv[1], ledger.SourceCLI)
 			if err != nil {
 				return err
 			}
-			defer func() { _ = e.Close() }()
+			if asJSON {
+				return writeJSON(cmd.OutOrStdout(), doc)
+			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Pinned %s to %s (never_switch = true)\n", argv[0], argv[1])
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON (docs/schemas/control.schema.json)")
+	return cmd
+}
+
+func (a *app) pin(ctx context.Context, jobID, provider, source string) (controlDoc, error) {
+	e, err := a.appendEventsFrom(ctx, source, func(ctx context.Context, e *engine.Engine, tx *ledger.Tx) ([]ledger.Event, error) {
+		if err := requireProvider(e, provider); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Job(ctx, jobID); err != nil {
+			return nil, err
+		}
+		return []ledger.Event{{JobID: jobID, Payload: ledger.JobPinned{Provider: provider}}}, nil
+	})
+	if err != nil {
+		return controlDoc{}, err
+	}
+	defer func() { _ = e.Close() }()
+	job, err := e.Ledger.Reader().Job(ctx, jobID)
+	if err != nil {
+		return controlDoc{}, err
+	}
+	return controlDoc{SchemaVersion: 1, Provider: provider, JobID: jobID, State: job.State}, nil
 }
 
 func unpinCmd(a *app) *cobra.Command {
@@ -167,6 +202,7 @@ func unpinCmd(a *app) *cobra.Command {
 
 func providerStateCmd(a *app, verb string) *cobra.Command {
 	var reason string
+	var asJSON bool
 	short := map[string]string{
 		"pause":  "Stop all new dispatches and failovers to a provider",
 		"drain":  "Let running jobs finish, assign no new work, then pause",
@@ -177,35 +213,47 @@ func providerStateCmd(a *app, verb string) *cobra.Command {
 		Short: short,
 		Args:  args(1, "<provider>"),
 		RunE: func(cmd *cobra.Command, argv []string) error {
-			e, err := a.appendEvents(cmd.Context(), func(_ context.Context, e *engine.Engine, _ *ledger.Tx) ([]ledger.Event, error) {
-				if err := requireProvider(e, argv[0]); err != nil {
-					return nil, err
-				}
-				var p ledger.Payload
-				switch verb {
-				case "pause":
-					p = ledger.Paused{Reason: reason, By: "cli"}
-				case "drain":
-					p = ledger.Draining{Reason: reason, By: "cli"}
-				default:
-					p = ledger.Resumed{By: "cli"}
-				}
-				return []ledger.Event{{ProviderID: argv[0], Source: ledger.SourceCLI, Payload: p}}, nil
-			})
+			doc, err := a.providerState(cmd.Context(), verb, argv[0], reason, ledger.SourceCLI)
 			if err != nil {
 				return err
 			}
-			defer func() { _ = e.Close() }()
-			row, err := e.Ledger.Reader().Provider(cmd.Context(), argv[0])
-			if err != nil {
-				return err
+			if asJSON {
+				return writeJSON(cmd.OutOrStdout(), doc)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", argv[0], row.State)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", argv[0], doc.State)
 			return err
 		},
 	}
 	if verb != "resume" {
 		cmd.Flags().StringVar(&reason, "reason", "", "note stored in the ledger")
+		cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON (docs/schemas/control.schema.json)")
 	}
 	return cmd
+}
+
+func (a *app) providerState(ctx context.Context, verb, provider, reason, source string) (controlDoc, error) {
+	e, err := a.appendEventsFrom(ctx, source, func(_ context.Context, e *engine.Engine, _ *ledger.Tx) ([]ledger.Event, error) {
+		if err := requireProvider(e, provider); err != nil {
+			return nil, err
+		}
+		var p ledger.Payload
+		switch verb {
+		case "pause":
+			p = ledger.Paused{Reason: reason, By: source}
+		case "drain":
+			p = ledger.Draining{Reason: reason, By: source}
+		default:
+			p = ledger.Resumed{By: source}
+		}
+		return []ledger.Event{{ProviderID: provider, Payload: p}}, nil
+	})
+	if err != nil {
+		return controlDoc{}, err
+	}
+	defer func() { _ = e.Close() }()
+	row, err := e.Ledger.Reader().Provider(ctx, provider)
+	if err != nil {
+		return controlDoc{}, err
+	}
+	return controlDoc{SchemaVersion: 1, Provider: provider, State: row.State}, nil
 }

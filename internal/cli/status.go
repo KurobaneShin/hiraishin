@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -52,85 +53,96 @@ func statusCmd(a *app) *cobra.Command {
 		Short: "Show providers, quota windows, slots and time to reset",
 		Args:  args(0, ""),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			e, err := a.open(cmd.Context())
-			if err != nil {
-				return err
+			out := cmd.OutOrStdout()
+			if asJSON {
+				out = nil
 			}
-			defer func() { _ = e.Close() }()
-			if err := e.Maintain(cmd.Context()); err != nil {
-				return err
-			}
-			ctx, out := cmd.Context(), cmd.OutOrStdout()
-			var w *watch.Watcher
-			var due []string
-			if !noSensors {
-				w = watch.New(e, a.probe(), slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
-				if due, err = w.Due(ctx); err != nil {
-					return err
-				}
-			}
-			load := func() (statusDoc, error) {
-				r := e.Ledger.Reader()
-				snap, err := e.Snapshot(ctx, r)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				rows, err := r.Providers(ctx)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				profile, err := r.Profile(ctx)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				jobs, err := r.Jobs(ctx, ledger.JobQueuedState, ledger.JobDispatchingState, ledger.JobRunningState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState)
-				if err != nil {
-					return statusDoc{}, err
-				}
-				return buildStatus(snap, rows, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, a.env.Now()), nil
-			}
-			live := !asJSON && len(due) > 0 && isTerminal(out)
-			if len(due) > 0 && !live {
-				if err := w.Poll(ctx); err != nil {
-					return err
-				}
-			}
-			doc, err := load()
+			doc, err := a.status(cmd.Context(), noSensors, out)
 			if err != nil {
 				return err
 			}
 			if asJSON {
-				return writeJSON(out, doc)
+				return writeJSON(cmd.OutOrStdout(), doc)
 			}
-			pal := palette{on: colorEnabled(out, a.env.Getenv)}
-			warn, reserve := e.Cfg.General.WarnUsedPct, e.Cfg.General.ReserveUsedPct
-			var first strings.Builder
-			if err := renderStatus(&first, doc, warn, reserve, pal); err != nil {
-				return err
-			}
-			if live {
-				first.WriteString(pal.paint(dim, "\n refreshing usage: "+strings.Join(due, ", ")+"…") + "\n")
-			}
-			if _, err := io.WriteString(out, first.String()); err != nil || !live {
-				return err
-			}
-			pollErr := w.Poll(ctx)
-			if doc, err = load(); err != nil {
-				return err
-			}
-			var second strings.Builder
-			if err := renderStatus(&second, doc, warn, reserve, pal); err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintf(out, "\x1b[%dA\x1b[J%s", strings.Count(first.String(), "\n"), second.String()); err != nil {
-				return err
-			}
-			return pollErr
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print JSON (schema_version 1)")
 	cmd.Flags().BoolVar(&noSensors, "no-sensors", false, "show the last recorded usage without polling usage endpoints or local logs")
 	return cmd
+}
+
+func (a *app) status(ctx context.Context, noSensors bool, out io.Writer) (statusDoc, error) {
+	e, err := a.open(ctx)
+	if err != nil {
+		return statusDoc{}, err
+	}
+	defer func() { _ = e.Close() }()
+	if err := e.Maintain(ctx); err != nil {
+		return statusDoc{}, err
+	}
+	var w *watch.Watcher
+	var due []string
+	if !noSensors {
+		w = watch.New(e, a.probe(), slog.New(slog.NewTextHandler(io.Discard, nil)), 0)
+		if due, err = w.Due(ctx); err != nil {
+			return statusDoc{}, err
+		}
+	}
+	load := func() (statusDoc, error) {
+		r := e.Ledger.Reader()
+		snap, err := e.Snapshot(ctx, r)
+		if err != nil {
+			return statusDoc{}, err
+		}
+		rows, err := r.Providers(ctx)
+		if err != nil {
+			return statusDoc{}, err
+		}
+		profile, err := r.Profile(ctx)
+		if err != nil {
+			return statusDoc{}, err
+		}
+		jobs, err := r.Jobs(ctx, ledger.JobQueuedState, ledger.JobDispatchingState, ledger.JobRunningState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState)
+		if err != nil {
+			return statusDoc{}, err
+		}
+		return buildStatus(snap, rows, e.Cfg.General.WarnUsedPct, cmp.Or(profile, e.Cfg.General.ActiveProfile), jobs, a.env.Now()), nil
+	}
+	live := out != nil && len(due) > 0 && isTerminal(out)
+	if len(due) > 0 && !live {
+		if err := w.Poll(ctx); err != nil {
+			return statusDoc{}, err
+		}
+	}
+	doc, err := load()
+	if err != nil || out == nil {
+		return doc, err
+	}
+	pal := palette{on: colorEnabled(out, a.env.Getenv)}
+	warn, reserve := e.Cfg.General.WarnUsedPct, e.Cfg.General.ReserveUsedPct
+	var first strings.Builder
+	if err := renderStatus(&first, doc, warn, reserve, pal); err != nil {
+		return statusDoc{}, err
+	}
+	if live {
+		first.WriteString(pal.paint(dim, "\n refreshing usage: "+strings.Join(due, ", ")+"…") + "\n")
+	}
+	if _, err := io.WriteString(out, first.String()); err != nil || !live {
+		return doc, err
+	}
+	pollErr := w.Poll(ctx)
+	if doc, err = load(); err != nil {
+		return statusDoc{}, err
+	}
+	var second strings.Builder
+	if err := renderStatus(&second, doc, warn, reserve, pal); err != nil {
+		return statusDoc{}, err
+	}
+	if _, err := fmt.Fprintf(out, "\x1b[%dA\x1b[J%s", strings.Count(first.String(), "\n"), second.String()); err != nil {
+		return statusDoc{}, err
+	}
+	return doc, pollErr
 }
 
 func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, warn float64, profile string, jobs []ledger.JobRow, now time.Time) statusDoc {
