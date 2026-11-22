@@ -21,11 +21,18 @@ func (l *Ledger) Archive(ctx context.Context, before time.Time, archivePath stri
 	if err != nil {
 		return 0, fmt.Errorf("begin archive: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	attached := false
+	defer func() {
+		_ = tx.Rollback()
+		if attached {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), `DETACH DATABASE archive`)
+		}
+	}()
 	cutoff := formatTime(before)
 	if _, err := tx.ExecContext(ctx, `ATTACH DATABASE ? AS archive`, archivePath); err != nil {
 		return 0, fmt.Errorf("attach archive: %w", err)
 	}
+	attached = true
 	if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS archive.events (
 		seq          INTEGER PRIMARY KEY AUTOINCREMENT,
 		event_id     TEXT NOT NULL UNIQUE,
@@ -65,6 +72,7 @@ func (l *Ledger) Archive(ctx context.Context, before time.Time, archivePath stri
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit archive: %w", err)
 	}
+	attached = false
 	if _, err := conn.ExecContext(ctx, `DETACH DATABASE archive`); err != nil {
 		return 0, fmt.Errorf("detach archive: %w", err)
 	}

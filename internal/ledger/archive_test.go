@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -132,3 +133,26 @@ func mustAppendArchive(t *testing.T, l *ledger.Ledger, ev ledger.Event) {
 }
 
 func ptrF(v float64) *float64 { return &v }
+
+func TestArchiveDetachesAfterAFailedCopy(t *testing.T) {
+	l, now := openArchiveLedger(t)
+	ctx := context.Background()
+	configureArchive(t, l, "p")
+	queueArchiveJob(t, l, "job_old", now().Add(-48*time.Hour))
+	completeJob(t, l, "job_old", now().Add(-47*time.Hour))
+	broken := filepath.Join(t.TempDir(), "broken.db")
+	db, err := sql.Open("sqlite", broken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE events (only_column TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	if _, err := l.Archive(ctx, now().Add(-24*time.Hour), broken); err == nil {
+		t.Fatal("copy into an incompatible archive table succeeded")
+	}
+	if _, err := l.Archive(ctx, now().Add(-24*time.Hour), filepath.Join(t.TempDir(), "archive.db")); err != nil {
+		t.Fatalf("archive after a failed run: %v", err)
+	}
+}
