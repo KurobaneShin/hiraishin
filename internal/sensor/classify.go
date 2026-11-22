@@ -17,7 +17,11 @@ const (
 	FamilyKimi    Family = "kimi"
 	FamilyGLM     Family = "glm"
 	FamilyAgy     Family = "agy"
+	FamilyCodex   Family = "codex"
+	FamilyGemini  Family = "gemini"
 	FamilyUnknown Family = ""
+
+	GeminiRPMCooldown = 65 * time.Second
 )
 
 func FamilyOf(p config.Provider) Family {
@@ -30,6 +34,10 @@ func FamilyOf(p config.Provider) Family {
 		return FamilyGLM
 	case config.HarnessAgy:
 		return FamilyAgy
+	case config.HarnessCodex:
+		return FamilyCodex
+	case config.HarnessGeminiCLI:
+		return FamilyGemini
 	case config.HarnessOpenCode:
 		id := strings.ToLower(p.Model + " " + p.HarnessAgent)
 		switch {
@@ -53,6 +61,7 @@ const (
 type Escalation struct {
 	Count  int
 	Within time.Duration
+	After  time.Duration
 }
 
 type Signal struct {
@@ -85,6 +94,10 @@ func rules(f Family) []rule {
 		return glmRules
 	case FamilyAgy:
 		return agyRules
+	case FamilyCodex:
+		return codexRules
+	case FamilyGemini:
+		return geminiRules
 	}
 	return nil
 }
@@ -114,6 +127,20 @@ var (
 		{id: "agy.quota_daily", kind: Exhausted, re: regexp.MustCompile(`(?i)quota exceeded.{0,80}per day|daily (quota|limit)`)},
 		{id: "agy.quota_429", kind: Degraded, cooldown: time.Minute, escalate: &Escalation{Count: 2, Within: 5 * time.Minute},
 			re: regexp.MustCompile(`RESOURCE_EXHAUSTED|(?i)error\W{0,3}429\b|quota exceeded`)},
+	}
+	codexRules = []rule{
+		{id: "codex.auth", kind: AuthError, re: regexp.MustCompile(`(?i)session has expired|codex login|invalid_api_key|authentication_error|refresh_token_reused|\b401\b.{0,40}unauthori[sz]ed|(error|status)\W{0,3}401\b`)},
+		{id: "codex.limit_weekly", kind: Exhausted, window: "weekly", reset: codexReset, re: regexp.MustCompile(`(?i)weekly (usage )?limit`)},
+		{id: "codex.limit_5h", kind: Exhausted, window: "5h", reset: codexReset, re: regexp.MustCompile(`(?i)hit your usage limit|usage_limit_reached|UsageLimitReached|exceeded your current quota|usage limit.{0,40}try again`)},
+		{id: "codex.rate_429", kind: Degraded, cooldown: time.Minute, re: regexp.MustCompile(`(?i)\b429\b|rate[ _]limit|too many requests`)},
+	}
+	geminiRules = []rule{
+		{id: "gemini.auth", kind: AuthError, re: regexp.MustCompile(`UNAUTHENTICATED|(?i)\b401\b.{0,40}unauthori[sz]ed|(error|status)\W{0,3}401\b|login required`)},
+		{id: "gemini.quota_daily", kind: Exhausted, window: "daily_rpd", reset: geminiReset,
+			re: regexp.MustCompile(`(?i)TerminalQuotaError|QUOTA_EXHAUSTED|quota.{0,80}(per day|daily)|daily (quota|limit)|RequestsPerDay`)},
+		{id: "gemini.quota_429", kind: Degraded, window: "daily_rpd", cooldown: GeminiRPMCooldown, reset: geminiReset,
+			escalate: &Escalation{Count: 2, Within: 10 * time.Minute, After: GeminiRPMCooldown},
+			re:       regexp.MustCompile(`RESOURCE_EXHAUSTED|(?i)RetryableQuotaError|exceeded your current quota|\b429\b|too many requests`)},
 	}
 )
 
@@ -149,18 +176,20 @@ func classifiable(line string) (string, bool) {
 	if err := json.Unmarshal([]byte(trimmed), &ev); err != nil {
 		return trimmed, true
 	}
-	if _, ok := ev["error"]; ok {
+	if raw, ok := ev["error"]; ok && strings.TrimSpace(string(raw)) != "null" {
 		return trimmed, true
 	}
 	var typ string
 	_ = json.Unmarshal(ev["type"], &typ)
 	switch typ {
-	case "error":
+	case "error", "turn.failed":
 		return trimmed, true
 	case "result":
 		var isErr bool
 		_ = json.Unmarshal(ev["is_error"], &isErr)
-		return trimmed, isErr
+		var status string
+		_ = json.Unmarshal(ev["status"], &status)
+		return trimmed, isErr || status == "error"
 	}
 	return "", false
 }
@@ -174,16 +203,17 @@ func excerpt(line string) string {
 }
 
 func SessionID(line string) string {
-	if !strings.Contains(line, `"session_id"`) && !strings.Contains(line, `"sessionID"`) && !strings.Contains(line, `"conversation_id"`) {
+	if !strings.Contains(line, `"session_id"`) && !strings.Contains(line, `"sessionID"`) && !strings.Contains(line, `"conversation_id"`) && !strings.Contains(line, `"thread_id"`) {
 		return ""
 	}
 	var ev struct {
 		Snake        string `json:"session_id"`
 		Camel        string `json:"sessionID"`
 		Conversation string `json:"conversation_id"`
+		Thread       string `json:"thread_id"`
 	}
 	if json.Unmarshal([]byte(strings.TrimSpace(line)), &ev) != nil {
 		return ""
 	}
-	return cmp.Or(ev.Snake, ev.Camel, ev.Conversation)
+	return cmp.Or(ev.Snake, ev.Camel, ev.Conversation, ev.Thread)
 }

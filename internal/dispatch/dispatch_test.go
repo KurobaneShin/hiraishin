@@ -43,7 +43,20 @@ func TestBuild(t *testing.T) {
 			want: []string{"opencode", "run", "--format", "json", "--auto", "--dir", "/wt", "--session", "ses_dfef", promptArg}},
 		{name: "agy resume", p: config.Provider{Harness: config.HarnessAgy}, resume: "67c2df35",
 			want: []string{"agy", "--mode", "accept-edits", "--dangerously-skip-permissions", "--add-dir", "/wt", "--output-format", "stream-json", "--conversation", "67c2df35", "--print", promptArg}},
-		{name: "codex is v0.2", p: config.Provider{Harness: config.HarnessCodex}, wantErr: true},
+		{name: "codex", p: config.Provider{Harness: config.HarnessCodex, Model: "o3", Effort: "high"},
+			want: []string{"codex", "exec", "--json", "--sandbox", "workspace-write", "--model", "o3", "-c", "model_reasoning_effort=high", promptArg}},
+		{name: "codex resume", p: config.Provider{Harness: config.HarnessCodex, Model: "o3"}, resume: "0199a213-81c0-7800-8aa1-bbab2a035a53",
+			want: []string{"codex", "exec", "resume", "0199a213-81c0-7800-8aa1-bbab2a035a53", "--json", "--sandbox", "workspace-write", "--model", "o3", promptArg}},
+		{name: "gemini", p: config.Provider{Harness: config.HarnessGeminiCLI, Model: "gemini-2.5-pro"},
+			want: []string{"gemini", "-p", promptArg, "--output-format", "stream-json", "--yolo", "--model", "gemini-2.5-pro"}},
+		{name: "gemini resume", p: config.Provider{Harness: config.HarnessGeminiCLI}, resume: "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+			want: []string{"gemini", "-p", promptArg, "--output-format", "stream-json", "--yolo", "--resume", "a1b2c3d4-5678-90ab-cdef-1234567890ab"}},
+		{name: "unknown harness", p: config.Provider{Harness: "unknown"}, wantErr: true},
+	}
+	for _, h := range []string{config.HarnessCodex, config.HarnessGeminiCLI} {
+		if !CanResume(h) {
+			t.Errorf("CanResume(%q) = false, want true", h)
+		}
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

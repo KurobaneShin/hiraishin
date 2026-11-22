@@ -1,0 +1,1 @@
+{"type":"result","timestamp":"2026-11-21T15:09:00.000Z","status":"error","error":{"type":"TerminalQuotaError","message":"QUOTA_EXHAUSTED: You have exhausted your daily quota for this model."}}

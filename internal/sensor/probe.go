@@ -460,7 +460,8 @@ func (p *Probe) timeout() time.Duration {
 
 func (p *Probe) localLogs(f Family, prov config.Provider) ([]Sample, error) {
 	window := shortestWindow(prov)
-	since := p.Now().Add(-time.Duration(window.DurationHours * float64(time.Hour)))
+	now := p.Now()
+	since := now.Add(-time.Duration(window.DurationHours * float64(time.Hour)))
 	var n int64
 	var err error
 	switch f {
@@ -475,6 +476,21 @@ func (p *Probe) localLogs(f Family, prov config.Provider) ([]Sample, error) {
 		n, err = ClaudeTokens(dir, since)
 	case FamilyAgy:
 		n, err = AgyTurns(p.Home, since)
+	case FamilyCodex:
+		return CodexRolloutSamples(CodexDir(p.Getenv, p.Home), now, window)
+	case FamilyGemini:
+		n, err = GeminiTokens(p.Home, PrevMidnightPacific(now))
+		if err != nil {
+			return nil, err
+		}
+		winName := "daily_rpd"
+		for _, w := range prov.Windows {
+			if w.Name != "" {
+				winName = w.Name
+				break
+			}
+		}
+		return []Sample{{Window: winName, Kind: "fixed_reset", ResetsAt: NextMidnightPacific(now), RawTokens: &n, Confidence: ledger.ConfidenceEstimated, Tier: "local_logs"}}, nil
 	default:
 		return nil, nil
 	}
@@ -482,6 +498,29 @@ func (p *Probe) localLogs(f Family, prov config.Provider) ([]Sample, error) {
 		return nil, err
 	}
 	return []Sample{{Window: window.Name, Kind: window.Kind, RawTokens: &n, Confidence: ledger.ConfidenceEstimated, Tier: "local_logs"}}, nil
+}
+
+func (p *Probe) ProbeGeminiLimit(ctx context.Context, prov config.Provider) (Signal, bool, error) {
+	if p.Run == nil {
+		return Signal{}, false, nil
+	}
+	args := []string{"-p", "ok", "--output-format", "stream-json"}
+	if prov.Model != "" {
+		args = append(args, "--model", prov.Model)
+	}
+	ctx, cancel := context.WithTimeout(ctx, p.timeout())
+	defer cancel()
+	out, runErr := p.Run(ctx, "gemini", args...)
+	now := p.Now()
+	for line := range strings.Lines(string(out)) {
+		if sig, ok := Classify(FamilyGemini, line, now); ok {
+			return sig, true, nil
+		}
+	}
+	if runErr != nil {
+		return Signal{}, false, fmt.Errorf("gemini probe: %w", runErr)
+	}
+	return Signal{}, false, nil
 }
 
 func shortestWindow(prov config.Provider) config.Window {
@@ -519,7 +558,7 @@ func ParseQuotaAxi(body []byte, f Family) ([]Sample, error) {
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, fmt.Errorf("parse quota-axi: %w", err)
 	}
-	want := map[Family]string{FamilyClaude: "claude", FamilyKimi: "kimi", FamilyGLM: "zai", FamilyAgy: "agy"}[f]
+	want := map[Family]string{FamilyClaude: "claude", FamilyKimi: "kimi", FamilyGLM: "zai", FamilyAgy: "agy", FamilyCodex: "codex", FamilyGemini: "gemini"}[f]
 	var out []Sample
 	for _, prov := range doc.Providers {
 		if prov.Provider != want {

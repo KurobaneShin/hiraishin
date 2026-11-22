@@ -60,6 +60,14 @@ func Detect(sys System, claudeDirs []string) ([]Found, error) {
 	if path, err := sys.LookPath("agy"); err == nil {
 		found = append(found, Found{ID: "agy", Binary: path, Provider: provider(config.HarnessAgy, "", "", 4, 3, 4, 1, "google-antigravity", "")})
 	}
+	if path, err := sys.LookPath("codex"); err == nil {
+		found = append(found, Found{ID: "codex", Binary: path, Provider: provider(config.HarnessCodex, "", "", 4, 3, 4, 2, "openai-codex", "")})
+	}
+	if path, err := sys.LookPath("gemini"); err == nil {
+		p := provider(config.HarnessGeminiCLI, "", "", 4, 2, 4, 2, "google-gemini-cli", "")
+		p.Windows = []config.Window{{Name: "daily_rpd", Kind: "fixed_reset", DurationHours: 24, FixedResetCron: "0 0 * * *", FixedResetTZ: "America/Los_Angeles"}}
+		found = append(found, Found{ID: "gemini", Binary: path, Provider: p})
+	}
 	return found, nil
 }
 

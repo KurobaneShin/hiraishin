@@ -356,7 +356,7 @@ func TestE2EInitWritesValidConfigWithoutSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generated config does not validate: %v", err)
 	}
-	for _, id := range []string{"claude", "glm-claude", "kimi-native", "agy"} {
+	for _, id := range []string{"claude", "glm-claude", "kimi-native", "agy", "codex", "gemini"} {
 		if _, ok := cfg.Providers[id]; !ok {
 			t.Errorf("provider %s not detected: %v", id, cfg.ProviderIDs())
 		}
@@ -507,8 +507,24 @@ harness = "antigravity-agy"
 quality_tier = 4
 scarcity_tier = 3
 speed_tier = 4
+[providers.codex]
+harness = "codex"
+quality_tier = 4
+scarcity_tier = 3
+speed_tier = 4
+[providers.gemini]
+harness = "gemini-cli"
+quality_tier = 4
+scarcity_tier = 2
+speed_tier = 4
+[[providers.gemini.windows]]
+name = "daily_rpd"
+kind = "fixed_reset"
+duration_hours = 24
+fixed_reset_cron = "0 0 * * *"
+fixed_reset_tz = "America/Los_Angeles"
 [roles.default]
-allowed_providers = ["claude", "kimi", "kimi-oc", "glm", "glm-oc", "agy"]
+allowed_providers = ["claude", "kimi", "kimi-oc", "glm", "glm-oc", "agy", "codex", "gemini"]
 min_quality_tier = 2
 `
 	tests := []struct {
@@ -536,6 +552,16 @@ min_quality_tier = 2
 		{"agy/429_x2.txt", "agy", "EXHAUSTED"},
 		{"agy/401.txt", "agy", "AUTH_ERROR"},
 		{"agy/normal.txt", "agy", ""},
+		{"codex/limit_5h.jsonl", "codex", "EXHAUSTED"},
+		{"codex/limit_weekly.jsonl", "codex", "EXHAUSTED"},
+		{"codex/rate_429.jsonl", "codex", "DEGRADED"},
+		{"codex/auth_401.txt", "codex", "AUTH_ERROR"},
+		{"codex/exec_normal.jsonl", "codex", ""},
+		{"gemini/quota_429.jsonl", "gemini", "DEGRADED"},
+		{"gemini/quota_429_burst.jsonl", "gemini", "DEGRADED"},
+		{"gemini/quota_daily.jsonl", "gemini", "EXHAUSTED"},
+		{"gemini/auth_401.txt", "gemini", "AUTH_ERROR"},
+		{"gemini/stream_normal.jsonl", "gemini", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.fixture, func(t *testing.T) {
