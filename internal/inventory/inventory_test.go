@@ -140,3 +140,41 @@ func TestClaudeLabelCollision(t *testing.T) {
 		t.Fatalf("ids = %v", ids)
 	}
 }
+
+func TestDetectCodexAndGemini(t *testing.T) {
+	sys := System{
+		LookPath: func(name string) (string, error) {
+			if name == "codex" || name == "gemini" {
+				return "/usr/local/bin/" + name, nil
+			}
+			return "", errors.New("not found")
+		},
+		ReadFile: os.ReadFile,
+		Getenv:   func(k string) string { return map[string]string{"HOME": t.TempDir()}[k] },
+		Stat:     os.Stat,
+		Glob:     filepath.Glob,
+	}
+	found, err := Detect(sys, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Found{}
+	for _, f := range found {
+		got[f.ID] = f
+	}
+	codex, ok := got["codex"]
+	if !ok || codex.Provider.Harness != "codex" || len(codex.Provider.Windows) != 2 {
+		t.Fatalf("codex = %+v (ok=%v)", codex, ok)
+	}
+	gemini, ok := got["gemini"]
+	if !ok || gemini.Provider.Harness != "gemini-cli" || len(gemini.Provider.Windows) != 1 {
+		t.Fatalf("gemini = %+v (ok=%v)", gemini, ok)
+	}
+	win := gemini.Provider.Windows[0]
+	if win.Name != "daily_rpd" || win.Kind != "fixed_reset" || win.FixedResetTZ != "America/Los_Angeles" {
+		t.Errorf("gemini window = %+v", win)
+	}
+	if err := Build(found, "process").Validate(); err != nil {
+		t.Fatalf("generated config invalid: %v", err)
+	}
+}

@@ -289,3 +289,84 @@ func TestProbeNeverSendsAnotherProvidersOpenCodeKey(t *testing.T) {
 		t.Fatalf("openrouter key sent to the Kimi usage endpoint: hits=%d err=%v", hits, err)
 	}
 }
+
+func TestProbeCodexRolloutSensor(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC)
+	rollout := filepath.Join(home, ".codex", "sessions", "2026", "11", "21", "rollout-2026-11-21T14-00-00-0199a213.jsonl")
+	writeFile(t, rollout, string(fixture(t, "codex/rollout_sample.jsonl")))
+	p := &Probe{Home: home, Now: func() time.Time { return now }}
+	prov := config.Provider{
+		Harness: config.HarnessCodex,
+		Sensor:  config.Sensor{Mode: "auto"},
+		Windows: []config.Window{{Name: "5h", Kind: "rolling", DurationHours: 5}, {Name: "weekly", Kind: "fixed_reset", DurationHours: 168}},
+	}
+	samples, err := p.Sample(context.Background(), prov)
+	if err != nil || len(samples) != 2 {
+		t.Fatalf("codex samples = %+v, %v", samples, err)
+	}
+	assertSample(t, samples[0], "5h", 42.5, time.Unix(1795287600, 0).UTC())
+	if samples[0].RawTokens == nil || *samples[0].RawTokens != 8100 {
+		t.Errorf("5h raw tokens = %v, want 8100", samples[0].RawTokens)
+	}
+	assertSample(t, samples[1], "weekly", 15.0, time.Unix(1795700000, 0).UTC())
+
+	expired := &Probe{Home: home, Now: func() time.Time { return time.Unix(1795287700, 0).UTC() }}
+	expSamples, err := expired.Sample(context.Background(), prov)
+	if err != nil || len(expSamples) != 2 || expSamples[0].UsedPct != nil || expSamples[1].Window != "weekly" {
+		t.Fatalf("expired 5h sample = %+v, %v", expSamples, err)
+	}
+
+	altHome := filepath.Join(t.TempDir(), "custom-codex")
+	writeFile(t, filepath.Join(altHome, "sessions", "2026", "11", "21", "rollout-tokonly.jsonl"),
+		`{"timestamp":"2026-11-21T14:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":400,"cached_input_tokens":100,"output_tokens":50}}}}`+"\n")
+	p2 := &Probe{Home: home, Getenv: func(k string) string { return map[string]string{"CODEX_HOME": altHome}[k] }, Now: func() time.Time { return now }}
+	s2, err := p2.Sample(context.Background(), prov)
+	if err != nil || len(s2) != 1 || s2[0].UsedPct != nil || s2[0].RawTokens == nil || *s2[0].RawTokens != 350 {
+		t.Fatalf("token-only codex sample = %+v, %v", s2, err)
+	}
+}
+
+func TestProbeGeminiLocalLogsAndLimitProbe(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC)
+	chat := filepath.Join(home, ".gemini", "tmp", "projhash", "chats", "session-2026-11-21T14-00.json")
+	writeFile(t, chat, string(fixture(t, "gemini/session_chat.json")))
+	p := &Probe{Home: home, Now: func() time.Time { return now }}
+	prov := config.Provider{
+		Harness: config.HarnessGeminiCLI,
+		Model:   "gemini-2.5-pro",
+		Sensor:  config.Sensor{Mode: "auto"},
+		Windows: []config.Window{{Name: "daily_rpd", Kind: "fixed_reset", DurationHours: 24, FixedResetTZ: "America/Los_Angeles"}},
+	}
+	samples, err := p.Sample(context.Background(), prov)
+	if err != nil || len(samples) != 1 {
+		t.Fatalf("gemini samples = %+v, %v", samples, err)
+	}
+	wantReset := time.Date(2026, 11, 22, 8, 0, 0, 0, time.UTC)
+	if samples[0].Window != "daily_rpd" || !samples[0].ResetsAt.Equal(wantReset) || samples[0].RawTokens == nil || *samples[0].RawTokens != 2600 {
+		t.Fatalf("gemini sample = %+v (tokens %v), want daily_rpd reset %v tokens 2600", samples[0], samples[0].RawTokens, wantReset)
+	}
+
+	var got []string
+	p.Run = func(_ context.Context, name string, args ...string) ([]byte, error) {
+		got = append([]string{name}, args...)
+		return fixture(t, "gemini/stream_session.jsonl"), nil
+	}
+	sig, hit, err := p.ProbeGeminiLimit(context.Background(), prov)
+	if err != nil || hit {
+		t.Fatalf("clean probe = %+v hit=%v err=%v", sig, hit, err)
+	}
+	wantCmd := "gemini -p ok --output-format stream-json --model gemini-2.5-pro"
+	if strings.Join(got, " ") != wantCmd {
+		t.Errorf("probe command = %q, want %q", strings.Join(got, " "), wantCmd)
+	}
+
+	p.Run = func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+		return fixture(t, "gemini/quota_429.jsonl"), errors.New("exit status 1")
+	}
+	sig, hit, err = p.ProbeGeminiLimit(context.Background(), prov)
+	if err != nil || !hit || sig.Kind != Degraded {
+		t.Fatalf("429 probe = %+v hit=%v err=%v", sig, hit, err)
+	}
+}

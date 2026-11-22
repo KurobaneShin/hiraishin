@@ -26,24 +26,26 @@ import (
 const maxReadPerTick = 1 << 20
 
 type Watcher struct {
-	engine  *engine.Engine
-	probe   *sensor.Probe
-	log     *slog.Logger
-	grace   time.Duration
-	tracker *sensor.Tracker
-	guard   *sensor.Guard
-	tails   map[string]*tail
-	seenSeq int64
+	engine         *engine.Engine
+	probe          *sensor.Probe
+	log            *slog.Logger
+	grace          time.Duration
+	tracker        *sensor.Tracker
+	guard          *sensor.Guard
+	tails          map[string]*tail
+	pendingConfirm map[string]time.Time
+	seenSeq        int64
 }
 
 type tail struct {
-	offset      int64
-	partial     []byte
-	sessionSeen bool
+	offset       int64
+	partial      []byte
+	sessionSeen  bool
+	degradedSeen bool
 }
 
 func New(e *engine.Engine, probe *sensor.Probe, log *slog.Logger, grace time.Duration) *Watcher {
-	return &Watcher{engine: e, probe: probe, log: log, grace: grace, tracker: sensor.NewTracker(), guard: sensor.NewGuard(), tails: map[string]*tail{}}
+	return &Watcher{engine: e, probe: probe, log: log, grace: grace, tracker: sensor.NewTracker(), guard: sensor.NewGuard(), tails: map[string]*tail{}, pendingConfirm: map[string]time.Time{}}
 }
 
 func (w *Watcher) Run(ctx context.Context, interval time.Duration, exitWhenIdle bool) error {
@@ -71,6 +73,9 @@ func (w *Watcher) Run(ctx context.Context, interval time.Duration, exitWhenIdle 
 func (w *Watcher) Tick(ctx context.Context) (int, error) {
 	e := w.engine
 	if err := e.Maintain(ctx); err != nil {
+		return 0, err
+	}
+	if err := w.confirmPending(ctx); err != nil {
 		return 0, err
 	}
 	if err := w.Poll(ctx); err != nil {
@@ -153,6 +158,12 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 		}
 		sig = w.tracker.Observe(att.ProviderID, sig, now)
 		if sig.Kind == sensor.Degraded {
+			t.degradedSeen = true
+			if sig.Escalate != nil && sig.Escalate.After > 0 {
+				if _, queued := w.pendingConfirm[att.ProviderID]; !queued {
+					w.pendingConfirm[att.ProviderID] = now.Add(sig.Escalate.After)
+				}
+			}
 			evs = append(evs, ledger.Event{ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.Degraded{MatchedPattern: sig.Pattern, Excerpt: sig.Excerpt, CooldownUntil: now.Add(sig.Cooldown)}})
 			continue
 		}
@@ -168,8 +179,12 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 		code = -1
 	}
 	cp, _ := dispatch.ReadCheckpoint(ctx, job.WorktreePath)
+	degraded := t.degradedSeen
 	delete(w.tails, att.ID)
 	if code == 0 {
+		if !degraded {
+			w.tracker.Clear(att.ProviderID)
+		}
 		evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobCompleted{AttemptID: att.ID, EndCommit: cp.Head, DurationMin: e.Now().Sub(att.StartedAt).Minutes()}})
 		w.log.Info("job completed", "job", job.ID, "provider", att.ProviderID)
 	} else {
@@ -234,10 +249,64 @@ func windowReset(p config.Provider, name string, sig sensor.Signal, now time.Tim
 			if !sig.ResetAt.IsZero() {
 				return win.Kind, sig.ResetAt
 			}
+			if win.Kind == "fixed_reset" && win.FixedResetTZ != "" {
+				if at, ok := sensor.NextMidnightIn(win.FixedResetTZ, now); ok {
+					return win.Kind, at
+				}
+			}
 			return win.Kind, now.Add(time.Duration(win.DurationHours * float64(time.Hour)))
 		}
 	}
 	return "", sig.ResetAt
+}
+
+func (w *Watcher) confirmPending(ctx context.Context) error {
+	if len(w.pendingConfirm) == 0 {
+		return nil
+	}
+	e := w.engine
+	now := e.Now()
+	var due []string
+	for id, at := range w.pendingConfirm {
+		if !at.After(now) {
+			due = append(due, id)
+		}
+	}
+	if len(due) == 0 {
+		return nil
+	}
+	slices.Sort(due)
+	var evs []ledger.Event
+	for _, id := range due {
+		delete(w.pendingConfirm, id)
+		if w.probe == nil || w.probe.Run == nil {
+			continue
+		}
+		prov, ok := e.Cfg.Providers[id]
+		if !ok || sensor.FamilyOf(prov) != sensor.FamilyGemini {
+			continue
+		}
+		sig, hit, err := w.probe.ProbeGeminiLimit(ctx, prov)
+		if err != nil {
+			evs = append(evs, ledger.Event{ProviderID: id, Source: ledger.SourceSensor, Payload: ledger.ProbeFailed{SensorTier: "confirm", Error: err.Error()}})
+			continue
+		}
+		if !hit {
+			w.tracker.Clear(id)
+			continue
+		}
+		sig = w.tracker.Observe(id, sig, now)
+		switch sig.Kind {
+		case sensor.AuthError:
+			evs = append(evs, ledger.Event{ProviderID: id, Source: ledger.SourceSensor, Payload: ledger.AuthFailed{MatchedPattern: sig.Pattern, Excerpt: sig.Excerpt}})
+		case sensor.Exhausted:
+			for _, member := range e.Cfg.PoolMembers(id) {
+				kind, reset := windowReset(e.Cfg.Providers[member], sig.Window, sig, now)
+				evs = append(evs, ledger.Event{ProviderID: member, Source: ledger.SourceSensor, Payload: ledger.LimitHit{WindowName: sig.Window, WindowKind: kind, MatchedPattern: sig.Pattern, Excerpt: sig.Excerpt, EstimatedResetAt: reset}})
+			}
+		}
+	}
+	return e.Ledger.Append(ctx, evs...)
 }
 
 func (w *Watcher) failover(ctx context.Context, job ledger.JobRow, att ledger.AttemptRow, sig sensor.Signal) error {

@@ -410,3 +410,104 @@ func TestFailoverPastTheWaitPointsTheNextAgentAtTheOldSession(t *testing.T) {
 		t.Errorf("resume prompt lacks the ai-memory pointer:\n%s", prompt)
 	}
 }
+
+const geminiCfgText = `
+schema_version = 1
+[general]
+active_profile = "balanced"
+[providers.gemini]
+harness = "gemini-cli"
+quality_tier = 4
+scarcity_tier = 2
+speed_tier = 4
+[[providers.gemini.windows]]
+name = "daily_rpd"
+kind = "fixed_reset"
+duration_hours = 24
+fixed_reset_cron = "0 0 * * *"
+fixed_reset_tz = "America/Los_Angeles"
+[roles.default]
+allowed_providers = ["gemini"]
+min_quality_tier = 2
+`
+
+func TestGeminiSingle429BurstDoesNotBenchUntilMidnightPT(t *testing.T) {
+	f := setupWith(t, geminiCfgText, map[string]string{
+		"gemini": `echo '{"type":"error","message":"429 RESOURCE_EXHAUSTED: Rate limit exceeded"}' >&2; echo '{"type":"result","status":"success"}'`,
+	})
+	f.clock.t = time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC)
+	probeCalls := 0
+	f.w.probe = &sensor.Probe{
+		Home: t.TempDir(),
+		Now:  f.clock.now,
+		Run: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			probeCalls++
+			return []byte(`{"type":"result","status":"success"}` + "\n"), nil
+		},
+	}
+	job := f.submit("default")
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	p, err := f.e.Ledger.Reader().Provider(context.Background(), "gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.State != ledger.StateDegraded || !p.CooldownUntil.Equal(f.clock.now().Add(sensor.GeminiRPMCooldown)) {
+		t.Fatalf("after single 429 burst: provider = %+v, want DEGRADED with 65s cooldown", p)
+	}
+	if probeCalls != 0 {
+		t.Fatalf("step-2 probe ran before 65s cooldown: %d", probeCalls)
+	}
+	f.clock.add(sensor.GeminiRPMCooldown)
+	if _, err := f.w.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if probeCalls != 1 {
+		t.Fatalf("step-2 probe calls = %d, want 1", probeCalls)
+	}
+	p, _ = f.e.Ledger.Reader().Provider(context.Background(), "gemini")
+	if p.State != ledger.StateAvailable {
+		t.Fatalf("after clean 65s probe: provider = %+v, want AVAILABLE", p)
+	}
+}
+
+func TestGeminiPersistent429After65sBenchesUntilMidnightPT(t *testing.T) {
+	f := setupWith(t, geminiCfgText, map[string]string{
+		"gemini": `echo '{"type":"error","message":"429 RESOURCE_EXHAUSTED: You exceeded your current quota"}' >&2; echo '{"type":"result","status":"success"}'`,
+	})
+	f.clock.t = time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC)
+	f.w.probe = &sensor.Probe{
+		Home: t.TempDir(),
+		Now:  f.clock.now,
+		Run: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return []byte(`{"type":"error","message":"429 RESOURCE_EXHAUSTED: You exceeded your current quota"}` + "\n"), fmt.Errorf("exit 1")
+		},
+	}
+	job := f.submit("default")
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	p, _ := f.e.Ledger.Reader().Provider(context.Background(), "gemini")
+	if p.State != ledger.StateDegraded {
+		t.Fatalf("before 65s confirmation: state = %s, want DEGRADED", p.State)
+	}
+	f.clock.add(sensor.GeminiRPMCooldown)
+	if _, err := f.w.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = f.e.Ledger.Reader().Provider(context.Background(), "gemini")
+	if p.State != ledger.StateExhausted {
+		t.Fatalf("after persistent 429 at 65s: state = %s, want EXHAUSTED", p.State)
+	}
+	wins, _ := f.e.Ledger.Reader().Windows(context.Background())
+	wantReset := time.Date(2026, 11, 22, 8, 0, 0, 0, time.UTC)
+	found := false
+	for _, w := range wins {
+		if w.ProviderID == "gemini" && w.Name == "daily_rpd" {
+			found = true
+			if w.UsedPct == nil || *w.UsedPct != 100 || !w.ResetsAt.Equal(wantReset) {
+				t.Errorf("daily_rpd window = %+v, want 100%% reset %v", w, wantReset)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("daily_rpd window not recorded")
+	}
+}

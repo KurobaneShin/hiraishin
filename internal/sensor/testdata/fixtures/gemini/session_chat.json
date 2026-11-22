@@ -1,0 +1,44 @@
+{
+  "sessionId": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+  "projectHash": "abc123def456",
+  "startTime": "2026-11-21T14:00:00.000Z",
+  "lastUpdated": "2026-11-21T14:30:00.000Z",
+  "messages": [
+    {
+      "id": "m1",
+      "timestamp": "2026-11-21T14:05:00.000Z",
+      "type": "gemini",
+      "tokens": {
+        "input": 2000,
+        "output": 400,
+        "cached": 1200,
+        "thoughts": 150,
+        "tool": 50
+      }
+    },
+    {
+      "id": "m2",
+      "timestamp": "2026-11-21T14:25:00.000Z",
+      "type": "gemini",
+      "tokens": {
+        "input": 3000,
+        "output": 600,
+        "cached": 2500,
+        "thoughts": 100,
+        "tool": 0
+      }
+    },
+    {
+      "id": "m0",
+      "timestamp": "2026-11-21T07:59:00.000Z",
+      "type": "gemini",
+      "tokens": {
+        "input": 9999,
+        "output": 999,
+        "cached": 0,
+        "thoughts": 0,
+        "tool": 0
+      }
+    }
+  ]
+}

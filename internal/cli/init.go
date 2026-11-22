@@ -27,7 +27,7 @@ func initCmd(a *app) *cobra.Command {
 				return fmt.Errorf("detect CLIs: %w", err)
 			}
 			if len(found) == 0 {
-				return fmt.Errorf("none of claude, kimi, opencode, agy found on PATH")
+				return fmt.Errorf("none of claude, kimi, opencode, agy, codex, gemini found on PATH")
 			}
 			if !yes && a.env.Interactive {
 				if found, err = confirm(a, found); err != nil {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -120,5 +121,42 @@ func TestInitNoCLIs(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "none of claude") {
 		t.Errorf("stderr = %s", errOut.String())
+	}
+}
+
+func TestInitDetectsCodexAndGeminiFakeBinariesOnPATH(t *testing.T) {
+	binDir := t.TempDir()
+	for _, name := range []string{"codex", "gemini"} {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDir)
+	home := t.TempDir()
+	vars := map[string]string{"HOME": home}
+	var out, errOut bytes.Buffer
+	env := Env{
+		Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errOut,
+		Getenv:   func(k string) string { return vars[k] },
+		LookPath: exec.LookPath,
+		ReadFile: os.ReadFile,
+		Now:      func() time.Time { return time.Date(2026, 11, 21, 15, 0, 0, 0, time.UTC) },
+	}
+	if code := Run(context.Background(), []string{"init", "--yes"}, env); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	cfg, err := config.Load(config.ResolvePaths(env.Getenv).Config)
+	if err != nil {
+		t.Fatalf("generated config invalid: %v", err)
+	}
+	want := []string{"codex", "gemini"}
+	if got := strings.Join(cfg.ProviderIDs(), ","); got != strings.Join(want, ",") {
+		t.Fatalf("providers = %s, want %s", got, strings.Join(want, ","))
+	}
+	if cfg.Providers["codex"].Harness != config.HarnessCodex {
+		t.Errorf("codex harness = %q", cfg.Providers["codex"].Harness)
+	}
+	if cfg.Providers["gemini"].Harness != config.HarnessGeminiCLI {
+		t.Errorf("gemini harness = %q", cfg.Providers["gemini"].Harness)
 	}
 }

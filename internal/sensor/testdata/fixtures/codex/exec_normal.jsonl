@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a54"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Added handling for 429 rate limits, 401 Unauthorized, and You've hit your usage limit errors in tests."}}
+{"type":"turn.completed","usage":{"input_tokens":2400,"cached_input_tokens":1200,"output_tokens":310}}
