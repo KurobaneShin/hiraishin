@@ -1,0 +1,88 @@
+schema_version = 1
+
+[general]
+active_profile = "quality-first"
+warn_used_pct = 85
+reserve_used_pct = 100
+allow_metered_fallback = false
+
+[learning]
+enabled = false
+frozen = true
+
+[providers.provider-a]
+harness = "claude-code"
+cost_class = "subscription"
+quality_tier = 5
+scarcity_tier = 5
+speed_tier = 3
+max_concurrent = 2
+
+[[providers.provider-a.windows]]
+name = "5h"
+kind = "rolling"
+duration_hours = 5
+
+[[providers.provider-a.windows]]
+name = "weekly"
+kind = "fixed_reset"
+duration_hours = 168
+
+[providers.provider-b]
+harness = "kimi-native"
+cost_class = "subscription"
+quality_tier = 4
+scarcity_tier = 2
+speed_tier = 4
+max_concurrent = 3
+
+[[providers.provider-b.windows]]
+name = "5h"
+kind = "rolling"
+duration_hours = 5
+
+[[providers.provider-b.windows]]
+name = "weekly"
+kind = "fixed_reset"
+duration_hours = 168
+
+[providers.provider-c]
+harness = "antigravity-agy"
+cost_class = "subscription"
+quality_tier = 3
+scarcity_tier = 1
+speed_tier = 5
+max_concurrent = 3
+
+[[providers.provider-c.windows]]
+name = "5h"
+kind = "rolling"
+duration_hours = 5
+
+[[providers.provider-c.windows]]
+name = "weekly"
+kind = "fixed_reset"
+duration_hours = 168
+
+[providers.provider-d]
+harness = "opencode"
+cost_class = "subscription"
+quality_tier = 4
+scarcity_tier = 3
+speed_tier = 4
+max_concurrent = 2
+
+[[providers.provider-d.windows]]
+name = "5h"
+kind = "rolling"
+duration_hours = 5
+
+[[providers.provider-d.windows]]
+name = "weekly"
+kind = "fixed_reset"
+duration_hours = 168
+
+[roles.default]
+allowed_providers = ["provider-a", "provider-b", "provider-c", "provider-d"]
+min_quality_tier = 1
+never_switch_mid_task = false
