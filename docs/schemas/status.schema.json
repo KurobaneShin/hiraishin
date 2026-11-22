@@ -113,6 +113,43 @@
                 },
                 "confidence": {
                   "type": "string"
+                },
+                "forecast": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "pct_per_hour",
+                    "time_to_empty_seconds",
+                    "time_to_reset_seconds",
+                    "perishable_waste_risk",
+                    "empties_before_reset"
+                  ],
+                  "properties": {
+                    "pct_per_hour": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "time_to_empty_seconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "time_to_reset_seconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "perishable_waste_risk": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "empties_before_reset": {
+                      "type": "boolean"
+                    }
+                  }
                 }
               }
             }

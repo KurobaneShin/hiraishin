@@ -248,3 +248,66 @@ func TestWhyMatchesDecisionRow(t *testing.T) {
 	}
 	h.run(1, "why", "job_missing")
 }
+
+func TestForecastRunningOutBeforeResetDegradesStatusAndCandidates(t *testing.T) {
+	h := newHarness(t)
+	e := h.engine()
+	reset := h.now.Add(3 * time.Hour)
+	var evs []ledger.Event
+	for m := 0; m <= 120; m += 10 {
+		fast, flat := 25*float64(m)/60, 20.0
+		at := h.now.Add(time.Duration(m-120) * time.Minute)
+		evs = append(evs,
+			ledger.Event{TS: at, ProviderID: "kimi", Source: ledger.SourceSensor, Payload: ledger.QuotaSampled{WindowName: "5h", WindowKind: "rolling", UsedPct: &fast, ResetsAt: reset, Confidence: ledger.ConfidenceExact}},
+			ledger.Event{TS: at, ProviderID: "agy", Source: ledger.SourceSensor, Payload: ledger.QuotaSampled{WindowName: "5h", WindowKind: "rolling", UsedPct: &flat, ResetsAt: reset, Confidence: ledger.ConfidenceExact}})
+	}
+	if err := e.Ledger.Append(context.Background(), evs...); err != nil {
+		t.Fatal(err)
+	}
+	_ = e.Close()
+	raw := h.run(0, "status", "--json", "--no-sensors")
+	validate(t, "status.schema.json", raw)
+	var doc statusDoc
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]string{}
+	for _, p := range doc.Providers {
+		states[p.ID] = p.State
+		f := p.Windows[0].Forecast
+		if f == nil {
+			t.Fatalf("%s: no forecast in %s", p.ID, raw)
+		}
+		if p.ID == "kimi" && (f.PctPerHour < 24.9 || f.PctPerHour > 25.1 || !f.EmptiesBeforeReset || f.TimeToEmptySeconds == nil || *f.TimeToEmptySeconds != 2*3600) {
+			t.Errorf("kimi forecast = %+v", *f)
+		}
+		if p.ID == "agy" && (f.PctPerHour != 0 || f.EmptiesBeforeReset || f.PerishableWasteRisk != 1) {
+			t.Errorf("agy forecast = %+v", *f)
+		}
+	}
+	if states["kimi"] != ledger.StateDegraded || states["agy"] != ledger.StateAvailable {
+		t.Fatalf("states = %v, want kimi DEGRADED and agy AVAILABLE", states)
+	}
+	text := h.run(0, "status", "--no-sensors")
+	if !strings.Contains(text, "degraded") || !strings.Contains(text, "empty in 2h") || !strings.Contains(text, "25%/h") {
+		t.Errorf("status text lacks the forecast:\n%s", text)
+	}
+	d := h.decide("job_f")
+	if k := candidateOf(t, d, "kimi"); k.State != ledger.StateDegraded || k.DegradedPenalty != scheduler.DegradedPenalty {
+		t.Errorf("kimi candidate state = %s penalty = %v, want DEGRADED with penalty", k.State, k.DegradedPenalty)
+	}
+	if a := candidateOf(t, d, "agy"); a.State != ledger.StateAvailable {
+		t.Errorf("agy candidate state = %s, want AVAILABLE", a.State)
+	}
+}
+
+func candidateOf(t *testing.T, d scheduler.Decision, id string) scheduler.Candidate {
+	t.Helper()
+	for _, c := range d.Candidates {
+		if c.Provider == id {
+			return c
+		}
+	}
+	t.Fatalf("no candidate %s in %s", id, d.Summary)
+	return scheduler.Candidate{}
+}

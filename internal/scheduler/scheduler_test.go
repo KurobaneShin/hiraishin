@@ -261,3 +261,53 @@ func TestExpiryFallsBackToTheShortestWindowWithAKnownReset(t *testing.T) {
 		t.Fatalf("expiry = %v neutral = %v, want %v from the weekly window", k.Features.Expiry, k.ExpiryNeutral, want)
 	}
 }
+
+func TestAttachForecastsSharesPoolTracesAndUsesTheFixedResetCron(t *testing.T) {
+	cfg := baseConfig()
+	for _, id := range []string{"kimi", "agy"} {
+		p := cfg.Providers[id]
+		p.SharedQuotaPool = "pool"
+		cfg.Providers[id] = p
+	}
+	sonnet := cfg.Providers["sonnet"]
+	sonnet.Windows = []config.Window{{Name: "daily", Kind: "fixed_reset", FixedResetCron: "0 0 * * *", FixedResetTZ: "America/Los_Angeles"}}
+	cfg.Providers["sonnet"] = sonnet
+	reset := now.Add(3 * time.Hour)
+	var samples []ledger.SampleRow
+	var wins []ledger.WindowRow
+	for m := 0; m <= 120; m += 10 {
+		at := now.Add(time.Duration(m-120) * time.Minute)
+		member := []string{"kimi", "agy"}[m/10%2]
+		samples = append(samples,
+			ledger.SampleRow{ProviderID: member, WindowName: "5h", At: at, UsedPct: 25 * float64(m) / 60, ResetsAt: reset},
+			ledger.SampleRow{ProviderID: "sonnet", WindowName: "daily", At: at, UsedPct: 2 * float64(m) / 60})
+		wins = []ledger.WindowRow{
+			{ProviderID: member, Name: "5h", Kind: "rolling", UsedPct: f(25 * float64(m) / 60), ResetsAt: reset, Confidence: ledger.ConfidenceExact, SampledAt: at},
+			{ProviderID: "sonnet", Name: "daily", Kind: "fixed_reset", UsedPct: f(2 * float64(m) / 60), Confidence: ledger.ConfidenceExact, SampledAt: at},
+		}
+	}
+	ps := AttachForecasts(cfg, Snapshot(cfg, nil, wins), samples, now)
+	byID := map[string]Provider{}
+	for _, p := range ps {
+		byID[p.ID] = p
+	}
+	for _, id := range []string{"kimi", "agy"} {
+		w := byID[id].Windows[0]
+		if w.Forecast == nil || !near(w.Forecast.PctPerHour, 25) || !w.Forecast.EmptiesBeforeReset {
+			t.Fatalf("%s 5h forecast = %+v, want 25%%/h emptying before reset", id, w.Forecast)
+		}
+		if got := EffectiveState(byID[id], 85, now); got != ledger.StateDegraded {
+			t.Errorf("%s effective state = %s, want DEGRADED", id, got)
+		}
+	}
+	daily := byID["sonnet"].Windows[0]
+	if daily.Forecast == nil || daily.Forecast.TimeToResetSeconds == nil || *daily.Forecast.TimeToResetSeconds != 17*3600 {
+		t.Fatalf("sonnet daily forecast = %+v, want reset at midnight PT (17h after 15:00 UTC)", daily.Forecast)
+	}
+	if daily.Forecast.EmptiesBeforeReset || EffectiveState(byID["sonnet"], 85, now) != ledger.StateAvailable {
+		t.Errorf("sonnet burns 2%%/h with 96%% left and 17h to reset: forecast = %+v", *daily.Forecast)
+	}
+	if byID["opus"].Windows[0].Forecast != nil {
+		t.Errorf("opus has no samples but got a forecast: %+v", byID["opus"].Windows[0].Forecast)
+	}
+}

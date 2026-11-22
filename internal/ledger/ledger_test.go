@@ -269,3 +269,37 @@ func TestLatestAttemptsOnePerJobAndLastSeq(t *testing.T) {
 		t.Errorf("seq %d -> %d", before, after)
 	}
 }
+
+func TestQuotaSamplesSinceInOrderWithUsage(t *testing.T) {
+	l, c := open(t)
+	configure(t, l, "kimi", "agy")
+	used := func(v float64) *float64 { return &v }
+	start := c.now()
+	reset := start.Add(5 * time.Hour)
+	mustAppend(t, l, Event{ProviderID: "kimi", Source: SourceSensor, Payload: QuotaSampled{WindowName: "5h", WindowKind: "rolling", UsedPct: used(10), ResetsAt: reset, Confidence: ConfidenceExact}})
+	c.add(time.Hour)
+	since := c.now()
+	mustAppend(t, l,
+		Event{ProviderID: "kimi", Source: SourceSensor, Payload: QuotaSampled{WindowName: "5h", WindowKind: "rolling", UsedPct: used(20), ResetsAt: reset, Confidence: ConfidenceExact}},
+		Event{ProviderID: "agy", Source: SourceSensor, Payload: QuotaSampled{WindowName: "daily", WindowKind: "fixed_reset", Confidence: ConfidenceInferred}},
+		Event{ProviderID: "agy", Source: SourceSensor, Payload: ProbeFailed{SensorTier: "endpoint", Error: "boom"}},
+	)
+	c.add(10 * time.Minute)
+	mustAppend(t, l, Event{ProviderID: "kimi", Source: SourceSensor, Payload: QuotaSampled{WindowName: "5h", WindowKind: "rolling", UsedPct: used(22), ResetsAt: reset, Confidence: ConfidenceExact}})
+	got, err := l.Reader().QuotaSamples(context.Background(), since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []SampleRow{
+		{ProviderID: "kimi", WindowName: "5h", At: since, UsedPct: 20, ResetsAt: reset},
+		{ProviderID: "kimi", WindowName: "5h", At: since.Add(10 * time.Minute), UsedPct: 22, ResetsAt: reset},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("samples = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i].ProviderID != want[i].ProviderID || got[i].WindowName != want[i].WindowName || !got[i].At.Equal(want[i].At) || got[i].UsedPct != want[i].UsedPct || !got[i].ResetsAt.Equal(want[i].ResetsAt) {
+			t.Errorf("sample %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}

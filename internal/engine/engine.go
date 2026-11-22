@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KurobaneShin/hiraishin/internal/config"
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 )
@@ -101,7 +102,12 @@ func (e *Engine) Snapshot(ctx context.Context, tx *ledger.Tx) ([]scheduler.Provi
 	if err != nil {
 		return nil, err
 	}
-	return scheduler.Snapshot(e.Cfg, rows, wins), nil
+	now := e.Now()
+	samples, err := tx.QuotaSamples(ctx, now.Add(-forecast.Lookback))
+	if err != nil {
+		return nil, err
+	}
+	return scheduler.AttachForecasts(e.Cfg, scheduler.Snapshot(e.Cfg, rows, wins), samples, now), nil
 }
 
 func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, trigger string, exclude []string) (scheduler.Decision, ledger.Event, error) {

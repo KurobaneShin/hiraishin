@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/KurobaneShin/hiraishin/internal/config"
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 )
 
@@ -38,12 +39,13 @@ const (
 )
 
 type Window struct {
-	Name          string    `json:"name"`
-	Kind          string    `json:"kind"`
-	DurationHours float64   `json:"duration_hours"`
-	UsedPct       *float64  `json:"used_pct"`
-	ResetsAt      time.Time `json:"resets_at,omitzero"`
-	Confidence    string    `json:"confidence"`
+	Name          string             `json:"name"`
+	Kind          string             `json:"kind"`
+	DurationHours float64            `json:"duration_hours"`
+	UsedPct       *float64           `json:"used_pct"`
+	ResetsAt      time.Time          `json:"resets_at,omitzero"`
+	Confidence    string             `json:"confidence"`
+	Forecast      *forecast.Forecast `json:"forecast,omitempty"`
 }
 
 type Provider struct {
@@ -210,7 +212,7 @@ func EffectiveState(p Provider, warnPct float64, now time.Time) string {
 			return ledger.StateDegraded
 		}
 		for _, w := range p.Windows {
-			if w.UsedPct != nil && *w.UsedPct >= warnPct {
+			if w.UsedPct != nil && *w.UsedPct >= warnPct || w.Forecast != nil && w.Forecast.EmptiesBeforeReset {
 				return ledger.StateDegraded
 			}
 		}
