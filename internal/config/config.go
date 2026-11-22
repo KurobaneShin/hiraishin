@@ -164,6 +164,8 @@ func (g General) AllowFailoverPastReserve() bool {
 
 const DefaultFailoverWaitMaxMin = 50
 
+const DefaultAIMemoryURL = "http://127.0.0.1:49374/mcp"
+
 func (g General) FailoverWaitMax() time.Duration {
 	if g.FailoverWaitMaxMin == nil {
 		return DefaultFailoverWaitMaxMin * time.Minute

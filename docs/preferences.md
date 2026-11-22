@@ -193,7 +193,7 @@ resume_prompt_template = ""
 [integrations.ai_memory]
 enabled = false
 transport = "http"             # only "http" is supported
-url = "http://127.0.0.1:49375/mcp"
+url = "http://127.0.0.1:49374/mcp"
 record_outcomes = true         # Write job outcome summaries as episodic pages
 
 [integrations.qmd]
@@ -543,7 +543,7 @@ min_quality_tier = 2
 [integrations.ai_memory]
 enabled = true
 transport = "http"
-url = "http://127.0.0.1:49375/mcp"
+url = "http://127.0.0.1:49374/mcp"
 record_outcomes = true
 
 [integrations.qmd]

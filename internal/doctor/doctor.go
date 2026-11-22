@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,7 +46,7 @@ func DefaultDeps() Deps {
 				return err
 			}
 			_ = resp.Body.Close()
-			if resp.StatusCode >= 400 {
+			if resp.StatusCode >= 400 && resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusNotAcceptable {
 				return fmt.Errorf("HTTP %d", resp.StatusCode)
 			}
 			return nil
@@ -154,6 +155,9 @@ func authFindings(cfg *config.Config, state map[string]ledger.ProviderRow, deps 
 	var out []Finding
 	for _, id := range cfg.ProviderIDs() {
 		p := cfg.Providers[id]
+		if !p.IsEnabled() {
+			continue
+		}
 		row, hasRow := state[id]
 		if hasRow && row.State == ledger.StateAuthError {
 			out = append(out, Finding{Category: "auth", Provider: id, Name: "provider state", Detail: row.LastError})
@@ -173,11 +177,14 @@ func authFindings(cfg *config.Config, state map[string]ledger.ProviderRow, deps 
 
 func claudeTokenFinding(id string, p config.Provider, deps Deps) Finding {
 	dir := claudeDir(p, deps.Getenv)
-	valid, expiresAt, err := readClaudeToken(dir, deps.Now(), deps.ReadFile)
+	valid, expiresAt, refreshable, err := readClaudeToken(dir, deps.Now(), deps.ReadFile)
 	c := Finding{Category: "auth", Provider: id, Name: "claude token"}
 	switch {
 	case err != nil:
 		c.Detail = err.Error()
+	case refreshable && (!valid || (!expiresAt.IsZero() && deps.Now().After(expiresAt.Add(-time.Hour)))):
+		c.OK = true
+		c.Detail = "access token expired or expiring; Claude Code refreshes it on next use"
 	case !valid:
 		c.Detail = "missing or expired"
 	case !expiresAt.IsZero() && deps.Now().After(expiresAt.Add(-time.Hour)):
@@ -201,34 +208,36 @@ func claudeDir(p config.Provider, getenv func(string) string) string {
 	return config.ExpandHome(p.ConfigDir, home)
 }
 
-func readClaudeToken(dir string, now time.Time, readFile func(string) ([]byte, error)) (bool, time.Time, error) {
+func readClaudeToken(dir string, now time.Time, readFile func(string) ([]byte, error)) (bool, time.Time, bool, error) {
 	b, err := readFile(filepath.Join(dir, ".credentials.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, time.Time{}, nil
+		return false, time.Time{}, false, nil
 	}
 	if err != nil {
-		return false, time.Time{}, err
+		return false, time.Time{}, false, err
 	}
 	var doc struct {
 		OAuth struct {
-			AccessToken string `json:"accessToken"`
-			ExpiresAt   int64  `json:"expiresAt"`
+			AccessToken  string `json:"accessToken"`
+			RefreshToken string `json:"refreshToken"`
+			ExpiresAt    int64  `json:"expiresAt"`
 		} `json:"claudeAiOauth"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return false, time.Time{}, fmt.Errorf("parse credentials: %w", err)
+		return false, time.Time{}, false, fmt.Errorf("parse credentials: %w", err)
 	}
+	refreshable := doc.OAuth.RefreshToken != ""
 	if doc.OAuth.AccessToken == "" {
-		return false, time.Time{}, nil
+		return false, time.Time{}, refreshable, nil
 	}
 	if doc.OAuth.ExpiresAt > 0 && !now.Before(time.UnixMilli(doc.OAuth.ExpiresAt)) {
-		return false, time.Time{}, nil
+		return false, time.Time{}, refreshable, nil
 	}
 	var at time.Time
 	if doc.OAuth.ExpiresAt > 0 {
 		at = time.UnixMilli(doc.OAuth.ExpiresAt)
 	}
-	return true, at, nil
+	return true, at, refreshable, nil
 }
 
 func envFinding(id, name string, getenv func(string) string) Finding {
@@ -311,10 +320,10 @@ func integrationFindings(ctx context.Context, cfg *config.Config, jobs []ledger.
 
 func aiMemoryFinding(ctx context.Context, m *config.AIMemory, deps Deps) Finding {
 	c := Finding{Category: "integration", Name: "ai-memory"}
-	if m.Transport == "http" && m.URL != "" {
+	if m.Transport == "" || m.Transport == "http" {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if err := deps.HTTPGet(ctx, m.URL); err != nil {
+		if err := deps.HTTPGet(ctx, cmp.Or(m.URL, config.DefaultAIMemoryURL)); err != nil {
 			c.Detail = err.Error()
 			return c
 		}

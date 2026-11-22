@@ -331,3 +331,64 @@ func render(r doctor.Report) string {
 	doctor.RenderText(&b, r)
 	return b.String()
 }
+
+func TestDoctorTrustsARefreshTokenAndSkipsDisabledProviders(t *testing.T) {
+	cfg := testConfig(t)
+	off := false
+	kimi := cfg.Providers["kimi-native"]
+	kimi.Enabled, kimi.APIKeyEnv = &off, "KIMI_DOCTOR_UNSET"
+	cfg.Providers["kimi-native"] = kimi
+	l, now := openLedger(t)
+	home := filepath.Join(t.TempDir(), "home")
+	mkdir(t, filepath.Join(home, ".claude"))
+	writeFile(t, filepath.Join(home, ".claude", ".credentials.json"), `{"claudeAiOauth":{"accessToken":"stale-secret","refreshToken":"refresh-secret","expiresAt":`+timestampMS(now().Add(-3*time.Hour))+`}}`)
+	deps := doctor.Deps{
+		Now:      now,
+		LookPath: func(name string) (string, error) { return "/bin/" + name, nil },
+		ReadFile: os.ReadFile,
+		Stat:     os.Stat,
+		Getenv: func(name string) string {
+			if name == "HOME" {
+				return home
+			}
+			return ""
+		},
+	}
+	report, err := doctor.Check(context.Background(), cfg, l.Reader(), deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range report.Findings {
+		if c.Category == "auth" && c.Provider == "claude-opus" && c.Name == "claude token" && !c.OK {
+			t.Errorf("an expired access token with a refresh token failed: %+v", c)
+		}
+		if c.Category == "auth" && c.Provider == "kimi-native" {
+			t.Errorf("disabled provider checked: %+v", c)
+		}
+	}
+	if out := render(report); strings.Contains(out, "stale-secret") || strings.Contains(out, "refresh-secret") {
+		t.Fatal("doctor output leaked a token value")
+	}
+}
+
+func TestDoctorProbesTheAIMemoryServerTheEngineUses(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Integrations.AIMemory = &config.AIMemory{Enabled: true}
+	l, now := openLedger(t)
+	var probed string
+	deps := doctor.Deps{
+		Now:      now,
+		LookPath: func(string) (string, error) { return "", exec.ErrNotFound },
+		ReadFile: os.ReadFile,
+		Stat:     os.Stat,
+		Getenv:   func(string) string { return "" },
+		HTTPGet:  func(_ context.Context, url string) error { probed = url; return nil },
+		Exec:     func(context.Context, string, ...string) error { return nil },
+	}
+	if _, err := doctor.Check(context.Background(), cfg, l.Reader(), deps); err != nil {
+		t.Fatal(err)
+	}
+	if probed != config.DefaultAIMemoryURL {
+		t.Fatalf("probed %q, want the engine default %q", probed, config.DefaultAIMemoryURL)
+	}
+}

@@ -244,3 +244,21 @@ func TestStdioTransportIsSkippedNotMisrouted(t *testing.T) {
 		t.Errorf("stdio transport enrichment = %q, calls %+v", got, mem.Calls())
 	}
 }
+
+func TestGraphSizingNeverRaisesTheTierAboveTheRolesBestProvider(t *testing.T) {
+	e := openEngine(t, stacktest.ClosedURL(t))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	off := false
+	top := e.Cfg.Providers["top"]
+	top.Enabled = &off
+	e.Cfg.Providers["top"] = top
+	wide := stackJob(t, "Touch store/load.go and game/tick.go.\n", "net/broadcast.go")
+	stacktest.WriteGraph(t, wide.WorktreePath, stackGraph)
+	d, _, err := e.Decide(context.Background(), e.Ledger.Reader(), wide, scheduler.TriggerDryRun, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ChosenProvider != "mid" || d.MinQualityTier != 3 {
+		t.Fatalf("wide task with only a tier-3 provider left: tier %d chosen %q: %s", d.MinQualityTier, d.ChosenProvider, d.Summary)
+	}
+}

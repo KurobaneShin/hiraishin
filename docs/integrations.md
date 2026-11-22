@@ -36,7 +36,7 @@ When an integration is skipped, `hiraishin` writes one `debug` log line (`stack 
 
 ## 1. `ai-memory` (Session Recovery and Outcome Pages)
 
-`ai-memory` runs locally as an MCP server (HTTP, e.g. `http://127.0.0.1:49375/mcp`). Its lifecycle hooks capture raw per-session observations (`user-prompt`, `post-tool-use`, `stop`, ...), including sessions that ended abruptly on a 429 without `SessionEnd`.
+`ai-memory` runs locally as an MCP server (HTTP, e.g. `http://127.0.0.1:49374/mcp`). Its lifecycle hooks capture raw per-session observations (`user-prompt`, `post-tool-use`, `stop`, ...), including sessions that ended abruptly on a 429 without `SessionEnd`.
 
 ### Client
 
@@ -151,7 +151,7 @@ No `graph.json` in either location → sizing returns no floor (the role's stati
 [integrations.ai_memory]
 enabled = false
 transport = "http"             # only "http" is supported
-url = "http://127.0.0.1:49375/mcp"
+url = "http://127.0.0.1:49374/mcp"
 record_outcomes = true
 
 [integrations.qmd]

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KurobaneShin/hiraishin/internal/config"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/stack"
 )
@@ -22,7 +23,6 @@ import (
 const (
 	sizingTimeout       = 2 * time.Second
 	contextTimeout      = 5 * time.Second
-	defaultMemoryURL    = "http://127.0.0.1:49375/mcp"
 	defaultQMDSnippets  = 5
 	defaultGraphTokens  = 1500
 	briefGoalChars      = 300
@@ -49,7 +49,7 @@ func (e *Engine) memory() (stack.Memory, bool) {
 		skipped(integrationAIMemory, fmt.Errorf("transport %q is not supported; use http", m.Transport))
 		return stack.Memory{}, false
 	}
-	return stack.Memory{URL: cmp.Or(m.URL, defaultMemoryURL)}, true
+	return stack.Memory{URL: cmp.Or(m.URL, config.DefaultAIMemoryURL)}, true
 }
 
 func (e *Engine) Enrich(ctx context.Context, job ledger.JobRow, resume bool) string {
@@ -154,7 +154,21 @@ func (e *Engine) tierFloor(ctx context.Context, tx *ledger.Tx, job ledger.JobRow
 		files = append(files, graph.Mentioned(string(brief))...)
 	}
 	size := graph.Size(files)
-	return size.TierFloor(), "graphify (" + size.Reason() + ")"
+	return min(size.TierFloor(), e.bestAllowedTier(job.Role)), "graphify (" + size.Reason() + ")"
+}
+
+func (e *Engine) bestAllowedTier(roleName string) int {
+	role, _, err := e.Cfg.Role(roleName)
+	if err != nil {
+		return 0
+	}
+	best := 0
+	for _, id := range role.AllowedProviders {
+		if p, ok := e.Cfg.Providers[id]; ok && p.IsEnabled() && !slices.Contains(role.DenyProviders, id) {
+			best = max(best, p.QualityTier)
+		}
+	}
+	return best
 }
 
 func loadGraph(ctx context.Context, worktree string) (*stack.Graph, error) {
