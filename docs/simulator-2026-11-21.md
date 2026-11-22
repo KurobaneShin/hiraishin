@@ -14,12 +14,14 @@ go run ./cmd/hiraishin sim \
 
 | Policy | Perishable quota used (%) | Expired wasted quota (%) | Total stall minutes | Failover count | Scarce-pool reserve left (%) |
 |---|---:|---:|---:|---:|---:|
-| quality-first | 17.31 | 8.31 | 0.00 | 2 | 58.33 |
-| burn-expiring-first | 12.88 | 12.75 | 0.00 | 0 | 60.00 |
-| save-scarce | 12.50 | 13.12 | 0.00 | 0 | 60.00 |
-| balanced | 15.88 | 9.75 | 0.00 | 0 | 58.33 |
+| quality-first | 17.52 | 8.10 | 0.00 | 2 | 58.33 |
+| burn-expiring-first | 16.23 | 9.40 | 0.00 | 0 | 58.67 |
+| save-scarce | 12.65 | 12.98 | 0.00 | 0 | 60.00 |
+| balanced | 16.67 | 8.96 | 0.00 | 1 | 58.33 |
 
 Job runtimes come from `job.completed.duration_min`. For each provider and window, positive deltas between consecutive quota samples determine the burn rate per active job. The replay applies that rate to the provider selected by each policy, while preserving arrivals, remaining work after failover, and reset timestamps.
+
+The replay records its own quota samples and gives the scheduler the same burn forecast as production, so the expiry feature is capped by the room a longer window leaves. Without that cap, `burn-expiring-first` used 12.88% of perishable quota and wasted 12.75%.
 
 Perishable utilization and expired waste use the combined capacity of rolling and fixed-reset windows shorter than one week, including capacity added by resets inside the trace. Stall minutes sum each job's time waiting for an eligible provider. Failovers count mid-job moves to a different provider. Scarce reserve is the remaining weekly quota of the highest-scarcity pool at the trace horizon.
 

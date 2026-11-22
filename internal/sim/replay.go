@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/KurobaneShin/hiraishin/internal/config"
+	"github.com/KurobaneShin/hiraishin/internal/forecast"
 	"github.com/KurobaneShin/hiraishin/internal/ledger"
 	"github.com/KurobaneShin/hiraishin/internal/scheduler"
 )
@@ -39,6 +41,7 @@ type windowState struct {
 	capacity  float64
 	consumed  float64
 	expired   float64
+	history   []forecast.Sample
 }
 
 type poolState struct {
@@ -73,6 +76,7 @@ type replay struct {
 	arrivalAt    int
 	resetAt      int
 	failovers    int
+	outlook      scheduler.Outlook
 }
 
 func Replay(ctx context.Context, ledgerPath string, policies []Policy) ([]Metrics, error) {
@@ -161,6 +165,7 @@ func (r *replay) run() error {
 		r.completeDue()
 		r.arriveDue()
 		r.stopExhausted()
+		r.record()
 		if !r.now.Before(r.trace.end) {
 			break
 		}
@@ -391,7 +396,43 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
+func (r *replay) record() {
+	since := r.now.Add(-forecast.Lookback)
+	for _, p := range r.pools {
+		for _, w := range p.windows {
+			if !w.measured {
+				continue
+			}
+			keep := slices.IndexFunc(w.history, func(s forecast.Sample) bool { return !s.At.Before(since) })
+			if keep < 0 {
+				keep = len(w.history)
+			}
+			w.history = append(w.history[keep:], forecast.Sample{At: r.now, UsedPct: w.used, ResetsAt: w.resetsAt})
+		}
+	}
+	r.outlook = scheduler.OutlookOf(scheduler.AttachForecasts(r.cfg, r.snapshot(), r.samples(), r.now))
+}
+
+func (r *replay) samples() []ledger.SampleRow {
+	var out []ledger.SampleRow
+	for _, key := range sortedPoolKeys(r.pools) {
+		p := r.pools[key]
+		for _, name := range sortedWindowKeys(p.windows) {
+			for _, s := range p.windows[name].history {
+				out = append(out, ledger.SampleRow{ProviderID: p.providers[0], WindowName: name, At: s.At, UsedPct: s.UsedPct, ResetsAt: s.ResetsAt})
+			}
+		}
+	}
+	return out
+}
+
 func (r *replay) providers() []scheduler.Provider {
+	out := r.snapshot()
+	r.outlook.Apply(out)
+	return out
+}
+
+func (r *replay) snapshot() []scheduler.Provider {
 	out := make([]scheduler.Provider, 0, len(r.cfg.Providers))
 	for _, id := range r.cfg.ProviderIDs() {
 		p := r.pools[r.providerPool[id]]

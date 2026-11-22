@@ -74,6 +74,31 @@ func failoverLedger(t *testing.T) string {
 	return path
 }
 
+func TestReplayProvidersCarryTheForecastStatusShows(t *testing.T) {
+	r, err := newReplay(context.Background(), &trace{start: fixtureStart, end: fixtureStart.Add(24 * time.Hour)}, testConfig("burn-expiring-first", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := r.pools[r.providerPool["alpha"]]
+	short, weekly := pool.windows["5h"], pool.windows["weekly"]
+	short.measured, short.resetsAt = true, fixtureStart.Add(4*time.Hour)
+	weekly.measured, weekly.used, weekly.resetsAt = true, 90, fixtureStart.Add(48*time.Hour)
+	for m := 0; m <= 60; m += 10 {
+		r.now = fixtureStart.Add(time.Duration(m) * time.Minute)
+		short.used, weekly.used = 3*float64(m)/60, 90+float64(m)/60
+		r.record()
+	}
+	for _, p := range r.providers() {
+		if p.ID != "alpha" {
+			continue
+		}
+		f5, fw := p.Windows[0].Forecast, p.Windows[1].Forecast
+		if f5 == nil || fw == nil || math.Abs(f5.PctPerHour-3) > 1e-9 || !fw.EmptiesBeforeReset || f5.PerishableWasteRisk != 0 {
+			t.Fatalf("alpha forecasts = %+v / %+v, want 3%%/h on 5h, weekly running out first and no 5h waste", f5, fw)
+		}
+	}
+}
+
 func TestReplayMetrics(t *testing.T) {
 	rows, err := Replay(context.Background(), failoverLedger(t), []Policy{{Name: "quality-first", Config: testConfig("quality-first", 1)}})
 	if err != nil {
