@@ -193,10 +193,14 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 		minutes := e.Now().Sub(att.StartedAt).Minutes()
 		evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobCompleted{AttemptID: att.ID, EndCommit: cp.Head, DurationMin: minutes}})
 		w.log.Info("job completed", "job", job.ID, "provider", att.ProviderID)
-		return e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
+		if err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
 			outcome, err := e.OutcomeEvent(ctx, tx, att.ProviderID, job.Role, job.ID, ledger.SourceWatcher, scheduler.Outcome{Success: true, DurationMin: minutes})
 			return append(evs, outcome), err
-		})
+		}); err != nil {
+			return err
+		}
+		w.recordOutcome(ctx, job.ID)
+		return nil
 	}
 	reason := fmt.Sprintf("agent exited with code %d", code)
 	if code == -1 {
@@ -204,7 +208,17 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 	}
 	evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobFailed{AttemptID: att.ID, EndCommit: cp.Head, ExitCode: code, Reason: reason}})
 	w.log.Warn("job failed", "job", job.ID, "provider", att.ProviderID, "reason", reason)
-	return e.Ledger.Append(ctx, evs...)
+	if err := e.Ledger.Append(ctx, evs...); err != nil {
+		return err
+	}
+	w.recordOutcome(ctx, job.ID)
+	return nil
+}
+
+func (w *Watcher) recordOutcome(ctx context.Context, jobID string) {
+	if err := w.engine.RecordOutcome(ctx, jobID); err != nil {
+		w.log.Debug("ai-memory outcome page skipped", "job", jobID, "err", err)
+	}
 }
 
 func started(dir string) bool {
@@ -473,6 +487,7 @@ func (w *Watcher) resetAt(ctx context.Context, tx *ledger.Tx, providerID string)
 func (w *Watcher) prompt(ctx context.Context, job ledger.JobRow, att *ledger.AttemptRow, native bool) (string, error) {
 	data := dispatch.PromptData{JobID: job.ID, JobName: job.Name, Worktree: job.WorktreePath, BriefPath: job.BriefPath, ReportPath: job.ReportPath}
 	if att == nil {
+		data.Enrichment = w.engine.Enrich(ctx, job, false)
 		return dispatch.InitialPrompt(data)
 	}
 	reason, err := w.failoverReason(ctx, job.ID, att)
@@ -491,6 +506,7 @@ func (w *Watcher) prompt(ctx context.Context, job ledger.JobRow, att *ledger.Att
 	if err != nil {
 		return "", err
 	}
+	data.Enrichment = w.engine.Enrich(ctx, job, true)
 	return dispatch.ResumePrompt(data, role.ResumePromptTemplate)
 }
 

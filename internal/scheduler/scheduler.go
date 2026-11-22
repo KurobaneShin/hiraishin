@@ -70,14 +70,16 @@ type Prefer struct {
 }
 
 type Request struct {
-	Job            Job
-	Trigger        string
-	Now            time.Time
-	Config         *config.Config
-	RuntimeProfile string
-	Prefers        []Prefer
-	Providers      []Provider
-	LearnDeltas    map[string]float64
+	Job                  Job
+	Trigger              string
+	Now                  time.Time
+	Config               *config.Config
+	RuntimeProfile       string
+	Prefers              []Prefer
+	Providers            []Provider
+	LearnDeltas          map[string]float64
+	MinQualityTier       int
+	MinQualityTierReason string
 }
 
 type Features struct {
@@ -128,6 +130,8 @@ func Select(req Request) (Decision, error) {
 	if err != nil {
 		return Decision{}, err
 	}
+	configuredTier := role.MinQualityTier
+	role.MinQualityTier = max(role.MinQualityTier, req.MinQualityTier)
 	profile := cmp.Or(role.ProfileOverride, req.RuntimeProfile, req.Config.General.ActiveProfile)
 	weights, err := req.Config.ProfileWeights(profile)
 	if err != nil {
@@ -164,6 +168,9 @@ func Select(req Request) (Decision, error) {
 		slices.Sort(d.FullProviders)
 	}
 	d.Summary = summarize(d)
+	if role.MinQualityTier > configuredTier {
+		d.Summary += fmt.Sprintf(" min_quality_tier raised from %d to %d by %s.", configuredTier, role.MinQualityTier, req.MinQualityTierReason)
+	}
 	return d, nil
 }
 

@@ -311,7 +311,14 @@ func TestResumePrompt(t *testing.T) {
 		t.Errorf("prompt without a session mentions ai-memory:\n%s", got)
 	}
 	initial, err := InitialPrompt(d)
-	if err != nil || !strings.Contains(initial, "Read the brief at /b.md") {
+	if err != nil || !strings.Contains(initial, "Read the brief at /b.md") || !strings.HasSuffix(initial, "open questions.\n") {
 		t.Errorf("initial = %q %v", initial, err)
+	}
+	d.Enrichment = "<related-docs>\n- qmd://orca/x.md:1\n</related-docs>\n"
+	if got, _ := InitialPrompt(d); !strings.Contains(got, "open questions.\n\n"+d.Enrichment) {
+		t.Errorf("initial with enrichment = %q", got)
+	}
+	if got, _ := ResumePrompt(d, ""); !strings.Contains(got, "- [x] step 1\n\n\n"+d.Enrichment+"\nInspect the diff") {
+		t.Errorf("resume with enrichment = %q", got)
 	}
 }

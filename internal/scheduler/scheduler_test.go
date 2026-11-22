@@ -331,3 +331,25 @@ func TestAttachForecastsSharesPoolTracesAndUsesTheFixedResetCron(t *testing.T) {
 		t.Errorf("opus has no samples but got a forecast: %+v", byID["opus"].Windows[0].Forecast)
 	}
 }
+
+func TestTaskSizingFloorOnlyRaisesMinQualityTier(t *testing.T) {
+	cfg := baseConfig()
+	ps := snapshot(cfg, nil)
+	d, err := Select(Request{Job: Job{ID: "j", Role: "gameplay"}, Trigger: TriggerInitial, Now: now, Config: cfg, Providers: ps, MinQualityTier: 5, MinQualityTierReason: "graphify (god nodes Engine)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.MinQualityTier != 5 || d.ChosenProvider != "" || !strings.Contains(d.Summary, "min_quality_tier raised from 3 to 5 by graphify (god nodes Engine).") {
+		t.Errorf("raised decision = %s tier %d: %s", d.ChosenProvider, d.MinQualityTier, d.Summary)
+	}
+	if c := candidate(t, d, "kimi"); c.Status != StatusRejected || !slices.Contains(c.Rejections, "quality_tier 4 < min_quality_tier 5") {
+		t.Errorf("kimi = %+v", c)
+	}
+	d, err = Select(Request{Job: Job{ID: "j", Role: "gameplay"}, Trigger: TriggerInitial, Now: now, Config: cfg, Providers: ps, MinQualityTier: 1, MinQualityTierReason: "graphify"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.MinQualityTier != 3 || strings.Contains(d.Summary, "raised") {
+		t.Errorf("a lower floor changed the decision: tier %d: %s", d.MinQualityTier, d.Summary)
+	}
+}

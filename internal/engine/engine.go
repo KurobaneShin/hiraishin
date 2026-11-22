@@ -158,10 +158,12 @@ func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, t
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err
 	}
+	floor, floorReason := e.tierFloor(ctx, tx, job)
 	d, err := scheduler.Select(scheduler.Request{
 		Job:     scheduler.Job{ID: job.ID, Role: job.Role, PinnedProvider: job.PinnedProvider, Exclude: exclude},
 		Trigger: trigger, Now: e.Now(), Config: e.Cfg, RuntimeProfile: profile, Prefers: prefers, Providers: providers,
-		LearnDeltas: scheduler.LearnDeltas(e.Cfg.Learning, learned),
+		LearnDeltas:    scheduler.LearnDeltas(e.Cfg.Learning, learned),
+		MinQualityTier: floor, MinQualityTierReason: floorReason,
 	})
 	if err != nil {
 		return scheduler.Decision{}, ledger.Event{}, err

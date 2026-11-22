@@ -140,7 +140,7 @@ func (a *app) run(cmd *cobra.Command, o runOpts) error {
 		_, err = fmt.Fprintf(out, "Job %s waits (state WAITING_QUOTA). %s\nhiraishin watch dispatches it when %s.\n", job.ID, d.Summary, next)
 		return err
 	}
-	prompt, err := dispatch.InitialPrompt(dispatch.PromptData{JobID: job.ID, JobName: job.Name, Worktree: wt, BriefPath: brief, ReportPath: report})
+	prompt, err := dispatch.InitialPrompt(dispatch.PromptData{JobID: job.ID, JobName: job.Name, Worktree: wt, BriefPath: brief, ReportPath: report, Enrichment: e.Enrich(ctx, job, false)})
 	if err != nil {
 		return err
 	}
