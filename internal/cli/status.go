@@ -251,7 +251,7 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 		fmt.Fprintf(&b, "\n %s %s\n", pal.paint(bold, "jobs"), strings.Join(parts, pal.paint(dim, " · ")))
 	}
 	if !doc.WatchRunning {
-		fmt.Fprintf(&b, "\n %s\n", pal.paint(yellow, "watch not running: usage refreshes only when status runs and no job fails over. Start it: hiraishin watch"))
+		fmt.Fprintf(&b, "\n %s\n", pal.paint(yellow, "watch not running: usage refreshes only when status runs and no job fails over. Run it as a service: hiraishin watch --install"))
 	}
 	fmt.Fprintf(&b, "\n %s\n", pal.paint(dim, "jobs = running/max at once per provider · how routing works: hiraishin help routing"))
 	_, err := io.WriteString(out, b.String())

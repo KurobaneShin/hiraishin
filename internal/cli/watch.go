@@ -57,13 +57,35 @@ func (a *app) probe() *sensor.Probe {
 
 func watchCmd(a *app) *cobra.Command {
 	var interval, grace time.Duration
-	var exitWhenIdle, noSensors bool
+	var exitWhenIdle, noSensors, install, uninstall bool
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Follow running jobs, fail over on limit hits and dispatch waiting jobs",
 		Args:  args(0, ""),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
+			switch {
+			case install:
+				exe, err := os.Executable()
+				if err != nil {
+					return err
+				}
+				if exe, err = filepath.EvalSymlinks(exe); err != nil {
+					return err
+				}
+				path, err := installWatchService(ctx, a, exe, systemctl)
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "installed %s\nhiraishin watch runs now and starts with your user session\nlogs: journalctl --user -u %s -f\n", path, watchUnitName)
+				return err
+			case uninstall:
+				if err := uninstallWatchService(ctx, a, systemctl); err != nil {
+					return err
+				}
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "removed %s\n", watchUnitPath(a))
+				return err
+			}
 			unlock, err := lockWatch(a.paths.DataDir)
 			if err != nil {
 				return err
@@ -91,5 +113,8 @@ func watchCmd(a *app) *cobra.Command {
 	f.DurationVar(&grace, "grace", dispatch.DefaultGrace, "wait between SIGINT, SIGTERM and SIGKILL when stopping an agent")
 	f.BoolVar(&exitWhenIdle, "exit-when-idle", false, "exit once no job is RUNNING or FAILING_OVER")
 	f.BoolVar(&noSensors, "no-sensors", false, "do not poll usage endpoints or local logs")
+	f.BoolVar(&install, "install", false, "run watch as a systemd user service that starts with your session, using this binary and PATH")
+	f.BoolVar(&uninstall, "uninstall", false, "stop and remove the systemd user service")
+	cmd.MarkFlagsMutuallyExclusive("install", "uninstall")
 	return cmd
 }

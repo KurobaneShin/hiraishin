@@ -27,6 +27,7 @@ func doctorCmd(a *app) *cobra.Command {
 			deps.LookPath = a.env.LookPath
 			deps.ReadFile = a.env.ReadFile
 			deps.Stat = a.env.Stat
+			deps.WatchRunning = func() bool { return watchRunning(a.paths.DataDir) }
 			report, err := doctor.Check(ctx, e.Cfg, e.Ledger.Reader(), deps)
 			if err != nil {
 				return err

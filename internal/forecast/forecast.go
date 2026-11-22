@@ -44,8 +44,13 @@ func Warmup(samples []Sample) time.Duration {
 	return max(0, MinSpan-span)
 }
 
+func byTime(a, b Sample) int { return a.At.Compare(b.At) }
+
 func currentWindowEWMA(samples []Sample) (ewma, weight float64, span time.Duration) {
-	sorted := slices.SortedStableFunc(slices.Values(samples), func(a, b Sample) int { return a.At.Compare(b.At) })
+	sorted := samples
+	if !slices.IsSortedFunc(samples, byTime) {
+		sorted = slices.SortedStableFunc(slices.Values(samples), byTime)
+	}
 	if n := len(sorted); n > 0 {
 		start := n - 1
 		for start > 0 && sameReset(sorted[start-1].ResetsAt, sorted[n-1].ResetsAt) {

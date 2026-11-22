@@ -20,13 +20,14 @@ import (
 )
 
 type Deps struct {
-	Now      func() time.Time
-	LookPath func(string) (string, error)
-	ReadFile func(string) ([]byte, error)
-	Stat     func(string) (fs.FileInfo, error)
-	Getenv   func(string) string
-	HTTPGet  func(ctx context.Context, url string) error
-	Exec     func(ctx context.Context, name string, args ...string) error
+	Now          func() time.Time
+	LookPath     func(string) (string, error)
+	ReadFile     func(string) ([]byte, error)
+	Stat         func(string) (fs.FileInfo, error)
+	Getenv       func(string) string
+	HTTPGet      func(ctx context.Context, url string) error
+	Exec         func(ctx context.Context, name string, args ...string) error
+	WatchRunning func() bool
 }
 
 func DefaultDeps() Deps {
@@ -100,6 +101,9 @@ func Check(ctx context.Context, cfg *config.Config, r *ledger.Tx, deps Deps) (Re
 	checks = append(checks, binaryFindings(cfg, deps.LookPath)...)
 	checks = append(checks, authFindings(cfg, state, deps)...)
 	checks = append(checks, sensorFindings(cfg, sampled, deps.Now)...)
+	if deps.WatchRunning != nil {
+		checks = append(checks, watchFinding(deps.WatchRunning()))
+	}
 	checks = append(checks, worktreeFindings(ctx, jobs)...)
 	checks = append(checks, integrationFindings(ctx, cfg, jobs, deps)...)
 	healthy := true
@@ -273,6 +277,13 @@ func sensorFindings(cfg *config.Config, sampled map[string]time.Time, now func()
 		out = append(out, c)
 	}
 	return out
+}
+
+func watchFinding(running bool) Finding {
+	if running {
+		return Finding{Category: "watch", Name: "running", OK: true, Detail: "hiraishin watch holds the watch lock"}
+	}
+	return Finding{Category: "watch", Name: "running", Detail: "not running: no usage sampling and no failover; run it as a service: hiraishin watch --install"}
 }
 
 func worktreeFindings(ctx context.Context, jobs []ledger.JobRow) []Finding {

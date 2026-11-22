@@ -115,22 +115,26 @@ func TestDoctorReportsStaleSensors(t *testing.T) {
 			}
 			return "", exec.ErrNotFound
 		},
-		ReadFile: os.ReadFile,
-		Stat:     os.Stat,
-		Getenv:   os.Getenv,
+		ReadFile:     os.ReadFile,
+		Stat:         os.Stat,
+		Getenv:       os.Getenv,
+		WatchRunning: func() bool { return false },
 	}
 	report, err := doctor.Check(ctx, cfg, l.Reader(), deps)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stale bool
+	var stale, stopped bool
 	for _, c := range report.Findings {
 		if c.Category == "sensor" && c.Provider == "kimi-native" && !c.OK {
 			stale = true
 		}
+		if c.Category == "watch" && !c.OK && strings.Contains(c.Detail, "hiraishin watch --install") {
+			stopped = true
+		}
 	}
-	if !stale {
-		t.Fatal("want stale sensor for kimi-native")
+	if !stale || !stopped {
+		t.Fatalf("want stale sensor for kimi-native and a stopped watch: %+v", report.Findings)
 	}
 }
 

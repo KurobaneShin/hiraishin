@@ -254,7 +254,7 @@ func TestRenderStatusExplainsAWindowAtItsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, want := range []string{"limit reached", "blocked until weekly resets", "~50% left unused at reset", "no burn data: watch not running", "1 limit reached", "1 disabled", "watch not running", "Start it: hiraishin watch"} {
+	for _, want := range []string{"limit reached", "blocked until weekly resets", "~50% left unused at reset", "no burn data: watch not running", "1 limit reached", "1 disabled", "watch not running", "Run it as a service: hiraishin watch --install"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q:\n%s", want, text)
 		}

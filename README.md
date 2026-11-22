@@ -37,6 +37,9 @@ hiraishin run --brief briefs/auth-fix/brief.md --worktree ../wt/auth-fix --role 
 # 5. Follow running jobs: on a limit hit, stop the agent, keep every dirty file and relaunch
 #    the next allowed provider in the same worktree with git status/diff + report.md
 hiraishin watch
+#    or keep it running as a systemd user service that starts with your session
+#    (uses this binary and your current PATH; --uninstall removes it)
+hiraishin watch --install
 
 # 6. Ask why the scheduler chose that provider and rejected the others (--json, --all)
 hiraishin why job_01J9X4K2
