@@ -88,6 +88,11 @@ type fixture struct {
 
 func setup(t *testing.T, bins map[string]string) *fixture {
 	t.Helper()
+	return setupWith(t, cfgText, bins)
+}
+
+func setupWith(t *testing.T, cfg string, bins map[string]string) *fixture {
+	t.Helper()
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -100,7 +105,7 @@ func setup(t *testing.T, bins map[string]string) *fixture {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	paths := config.Paths{Config: filepath.Join(dir, "p.toml"), DataDir: filepath.Join(dir, "data")}
-	if err := os.WriteFile(paths.Config, []byte(cfgText), 0o600); err != nil {
+	if err := os.WriteFile(paths.Config, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	c := &clock{t: time.Now().UTC()}
@@ -142,7 +147,7 @@ func (f *fixture) submit(role string) ledger.JobRow {
 	if d.ChosenProvider == "" {
 		return job
 	}
-	ev := f.e.Launch(context.Background(), job, d.DecisionID, d.ChosenProvider, "initial prompt")
+	ev := f.e.Launch(context.Background(), job, d.DecisionID, d.ChosenProvider, "initial prompt", "")
 	if err := f.e.Ledger.Append(context.Background(), ev); err != nil {
 		f.t.Fatal(err)
 	}
@@ -348,5 +353,60 @@ func TestPollSkipsProvidersWithFreshLedgerSamples(t *testing.T) {
 	}
 	if got["5h"] != 25 || got["weekly"] != 50 {
 		t.Fatalf("kimi windows = %v", got)
+	}
+}
+
+const kimiLimitWithSession = `if [ "$5" = "--session" ]; then echo "$6" > resumed-session.txt; printf '%s' "$2" > continue-prompt.txt; exit 0; fi
+echo '{"session_id":"sess-kimi"}'
+echo "429 You've reached your 5-hour usage limit" >&2
+exec sleep 30
+`
+
+func TestFailoverWaitsForANearResetAndResumesTheNativeSession(t *testing.T) {
+	f := setupWith(t, strings.Replace(cfgText, "[general]\n", "[general]\nfailover_wait_max_min = 360\n", 1), map[string]string{
+		"kimi": kimiLimitWithSession,
+		"agy":  "touch agy-ran",
+	})
+	job := f.submit("default")
+	f.tickUntil("WAITING_QUOTA", func() bool { j, _ := f.job(job.ID); return j.State == ledger.JobWaitingQuotaState })
+	for range 3 {
+		if _, err := f.w.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if j, atts := f.job(job.ID); j.State != ledger.JobWaitingQuotaState || len(atts) != 1 {
+		t.Fatalf("job failed over instead of waiting for kimi's reset: %s %+v", j.State, atts)
+	}
+	f.clock.add(5*time.Hour + time.Minute)
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	_, atts := f.job(job.ID)
+	if len(atts) != 2 || atts[1].ProviderID != "kimi" {
+		t.Fatalf("attempts = %+v", atts)
+	}
+	if b, _ := os.ReadFile(filepath.Join(job.WorktreePath, "resumed-session.txt")); string(b) != "sess-kimi\n" {
+		t.Errorf("resumed session = %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(job.WorktreePath, "continue-prompt.txt")); !strings.Contains(string(b), "quota has reset") {
+		t.Errorf("continue prompt = %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(job.WorktreePath, "agy-ran")); err == nil {
+		t.Error("agy ran although kimi's reset was within failover_wait_max_min")
+	}
+}
+
+func TestFailoverPastTheWaitPointsTheNextAgentAtTheOldSession(t *testing.T) {
+	f := setup(t, map[string]string{
+		"kimi": kimiLimitWithSession,
+		"agy":  `printf '%s' "${@: -1}" > resume-prompt.txt`,
+	})
+	job := f.submit("default")
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	_, atts := f.job(job.ID)
+	if len(atts) != 2 || atts[1].ProviderID != "agy" {
+		t.Fatalf("attempts = %+v", atts)
+	}
+	prompt, _ := os.ReadFile(filepath.Join(job.WorktreePath, "resume-prompt.txt"))
+	if !strings.Contains(string(prompt), "memory_read_session_observations (session_id sess-kimi, order desc)") {
+		t.Errorf("resume prompt lacks the ai-memory pointer:\n%s", prompt)
 	}
 }

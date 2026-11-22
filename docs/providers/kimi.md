@@ -34,7 +34,7 @@ Documented for Moonshot's native Kimi Code CLI (`kimi`):
 ### Resume Semantics (Native)
 
 - `kimi --continue`: resumes the most recent session in the current working directory.
-- `kimi --session <session-id>` (`-S`, hidden alias `-r`): resumes a specific saved session ID (or opens an interactive picker when `<session-id>` is omitted).
+- `kimi --session <session-id>` (`-S`, hidden alias `-r`): resumes a specific saved session ID (or opens an interactive picker when `<session-id>` is omitted). Verified live on 2026-11-21 with `--prompt ... --output-format stream-json --session session_<uuid>`: same session id, earlier turn recalled.
 
 ---
 
@@ -63,7 +63,7 @@ Verified locally against `opencode --help`, `opencode run --help`, and `~/.confi
 
 ### Resume Semantics (OpenCode)
 
-- `opencode run --continue` (`-c`) or `--session <ses_id>` (`-s`): resumes a session stored in `~/.local/share/opencode/opencode.db`.
+- `opencode run --continue` (`-c`) or `--session <ses_id>` (`-s`): resumes a session stored in `~/.local/share/opencode/opencode.db`. Verified live on 2026-11-21 (`kimi-for-coding-highspeed`): same `sessionID`, earlier turn recalled, `cache.read` 38400 tokens on the resumed turn.
 - `--fork`: forks before continuing.
 - OpenCode session IDs (`ses_...`) map directly to `ai-memory`'s `memory_read_session_observations(session_id=...)`.
 

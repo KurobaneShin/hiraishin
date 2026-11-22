@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -32,6 +33,7 @@ type General struct {
 	ReserveUsedPct         float64 `toml:"reserve_used_pct"`
 	ReserveAllowFailover   *bool   `toml:"reserve_allow_failover,omitempty"`
 	AllowMeteredFallback   bool    `toml:"allow_metered_fallback"`
+	FailoverWaitMaxMin     *int    `toml:"failover_wait_max_min,omitempty"`
 }
 
 type Weights struct {
@@ -156,6 +158,15 @@ func (p Provider) IsEnabled() bool { return p.Enabled == nil || *p.Enabled }
 
 func (g General) AllowFailoverPastReserve() bool {
 	return g.ReserveAllowFailover == nil || *g.ReserveAllowFailover
+}
+
+const DefaultFailoverWaitMaxMin = 50
+
+func (g General) FailoverWaitMax() time.Duration {
+	if g.FailoverWaitMaxMin == nil {
+		return DefaultFailoverWaitMaxMin * time.Minute
+	}
+	return time.Duration(*g.FailoverWaitMaxMin) * time.Minute
 }
 
 func (c *Config) ProfileWeights(name string) (Weights, error) {

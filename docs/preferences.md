@@ -35,6 +35,14 @@ warn_used_pct = 85.0
 reserve_used_pct = 98.0
 reserve_allow_failover = true
 
+# On a limit hit, wait for the same provider instead of failing over when its
+# reset falls within this many minutes of the agent stopping, then resume the
+# agent's own session (claude --resume, kimi --session, opencode --session,
+# agy --conversation). The default stays inside Claude Code's 1h prompt-cache
+# TTL (measured on 2026-11-21: every cache write in local transcripts, `claude -p`
+# included, was ephemeral_1h). Kimi Code and Z.AI publish no TTL. 0 turns it off.
+failover_wait_max_min = 50
+
 # Never automatically turn on pay-as-you-go / metered providers unless
 # explicitly enabled in both [general] and the provider's own entry.
 allow_metered_fallback = false

@@ -34,6 +34,7 @@ agy --model gemini-4-neon-high --mode accept-edits --add-dir /path/to/worktree -
 ```
 
 - `-i` / `--prompt-interactive`: runs an initial prompt interactively and keeps the session open.
+- `--conversation <id>`: resumes a conversation by the `conversation_id` from `stream-json`. Verified live on 2026-11-21 with `--print`: same `conversation_id`, earlier turn recalled, `cache_read_tokens` 7349.
 - `agy models`: lists available models.
 - `agy acp`: starts an Agent Client Protocol (ACP) stdio server.
 

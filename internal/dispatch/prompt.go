@@ -17,6 +17,7 @@ type PromptData struct {
 	BriefPath    string
 	ReportPath   string
 	FromProvider string
+	SessionID    string
 	Reason       string
 	Checkpoint   Checkpoint
 	Report       string
@@ -30,6 +31,9 @@ Keep {{.ReportPath}} current with progress, decisions and open questions.
 var resumePrompt = template.Must(template.New("resume").Parse(`You are resuming job {{.JobName}} ({{.JobID}}) in the git worktree {{.Worktree}}.
 The previous agent ({{.FromProvider}}) stopped: {{.Reason}}.
 Its work is preserved in this worktree. Do not reset, stash or discard any change.
+{{- if .SessionID}}
+Its session id was {{.SessionID}}. If the ai-memory MCP is available, read what it did with memory_read_session_observations (session_id {{.SessionID}}, order desc) before exploring the code again.
+{{- end}}
 
 Brief: {{.BriefPath}}
 Report: {{.ReportPath}}
@@ -46,6 +50,13 @@ HEAD: {{or .Checkpoint.Head "(no commits)"}}
 
 Inspect the diff, continue the brief from this state, and keep the report current.
 `))
+
+var continuePrompt = template.Must(template.New("continue").Parse(`Your quota has reset; you were stopped mid-task on job {{.JobName}} ({{.JobID}}): {{.Reason}}.
+Continue the brief at {{.BriefPath}} from where you stopped. The worktree {{.Worktree}} is as you left it.
+Keep {{.ReportPath}} current.
+`))
+
+func ContinuePrompt(d PromptData) (string, error) { return render(continuePrompt, d) }
 
 func render(t *template.Template, d PromptData) (string, error) {
 	var b bytes.Buffer

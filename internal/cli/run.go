@@ -140,7 +140,7 @@ func (a *app) run(cmd *cobra.Command, o runOpts) error {
 	if err != nil {
 		return err
 	}
-	ev := e.Launch(ctx, job, d.DecisionID, d.ChosenProvider, prompt)
+	ev := e.Launch(ctx, job, d.DecisionID, d.ChosenProvider, prompt, "")
 	if err := e.Ledger.Append(ctx, ev); err != nil {
 		return err
 	}

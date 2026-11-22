@@ -18,6 +18,7 @@ func TestBuild(t *testing.T) {
 	tests := []struct {
 		name    string
 		p       config.Provider
+		resume  string
 		want    []string
 		wantEnv string
 		wantRef string
@@ -34,11 +35,19 @@ func TestBuild(t *testing.T) {
 			want: []string{"opencode", "run", "--format", "json", "--auto", "--dir", "/wt", "--agent", "kimi-worker", "--model", "p/m", promptArg}},
 		{name: "agy with prefix", p: config.Provider{Harness: config.HarnessAgy, Model: "g", LaunchPrefix: []string{"flock", "~/.agy.lock"}},
 			want: []string{"flock", "~/.agy.lock", "agy", "--mode", "accept-edits", "--dangerously-skip-permissions", "--add-dir", "/wt", "--output-format", "stream-json", "--model", "g", "--print", promptArg}},
+		{name: "claude resume", p: config.Provider{Harness: config.HarnessClaudeCode}, resume: "d0b2f679",
+			want: []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", "/wt", "--resume", "d0b2f679"}},
+		{name: "kimi resume", p: config.Provider{Harness: config.HarnessKimiNative}, resume: "session_6149",
+			want: []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json", "--session", "session_6149"}},
+		{name: "opencode resume", p: config.Provider{Harness: config.HarnessOpenCode}, resume: "ses_dfef",
+			want: []string{"opencode", "run", "--format", "json", "--auto", "--dir", "/wt", "--session", "ses_dfef", promptArg}},
+		{name: "agy resume", p: config.Provider{Harness: config.HarnessAgy}, resume: "67c2df35",
+			want: []string{"agy", "--mode", "accept-edits", "--dangerously-skip-permissions", "--add-dir", "/wt", "--output-format", "stream-json", "--conversation", "67c2df35", "--print", promptArg}},
 		{name: "codex is v0.2", p: config.Provider{Harness: config.HarnessCodex}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, err := Build(tt.p, "/wt")
+			c, err := Build(tt.p, "/wt", tt.resume)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v", err)
 			}
@@ -85,7 +94,7 @@ func gitRepo(t *testing.T) string {
 func prepare(t *testing.T, p config.Provider, wt, prompt string) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	c, err := Build(p, wt)
+	c, err := Build(p, wt, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,13 +271,13 @@ func TestResumePrompt(t *testing.T) {
 	if err := os.WriteFile(report, []byte("- [x] step 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	d := PromptData{JobID: "job_1", JobName: "persist-all", Worktree: "/wt", BriefPath: "/b.md", ReportPath: report, FromProvider: "kimi", Reason: "429 You've reached your 5-hour usage limit",
+	d := PromptData{JobID: "job_1", JobName: "persist-all", Worktree: "/wt", BriefPath: "/b.md", ReportPath: report, FromProvider: "kimi", SessionID: "ses_k1", Reason: "429 You've reached your 5-hour usage limit",
 		Checkpoint: Checkpoint{Head: "abc", Status: " M a.go\n?? new/b.go", DiffStat: " a.go | 2 +-"}}
 	got, err := ResumePrompt(d, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"resuming job persist-all (job_1)", "previous agent (kimi) stopped: 429 You've reached your 5-hour usage limit", " M a.go\n?? new/b.go", " a.go | 2 +-", "- [x] step 1", "Do not reset"} {
+	for _, want := range []string{"resuming job persist-all (job_1)", "previous agent (kimi) stopped: 429 You've reached your 5-hour usage limit", " M a.go\n?? new/b.go", " a.go | 2 +-", "- [x] step 1", "Do not reset", "session id was ses_k1", "memory_read_session_observations (session_id ses_k1, order desc)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt missing %q:\n%s", want, got)
 		}
@@ -279,6 +288,14 @@ func TestResumePrompt(t *testing.T) {
 	}
 	if got, err := ResumePrompt(d, tmpl); err != nil || got != "job_1 from kimi: 19" {
 		t.Errorf("custom = %q %v", got, err)
+	}
+	cont, err := ContinuePrompt(d)
+	if err != nil || !strings.Contains(cont, "quota has reset") || !strings.Contains(cont, "Continue the brief at /b.md") {
+		t.Errorf("continue = %q %v", cont, err)
+	}
+	d.SessionID = ""
+	if got, _ := ResumePrompt(d, ""); strings.Contains(got, "ai-memory") {
+		t.Errorf("prompt without a session mentions ai-memory:\n%s", got)
 	}
 	initial, err := InitialPrompt(d)
 	if err != nil || !strings.Contains(initial, "Read the brief at /b.md") {

@@ -21,7 +21,15 @@ type Command struct {
 	Unset  []string
 }
 
-func Build(p config.Provider, worktree string) (Command, error) {
+func CanResume(harness string) bool {
+	switch harness {
+	case config.HarnessClaudeCode, config.HarnessGLMClaude, config.HarnessKimiNative, config.HarnessOpenCode, config.HarnessAgy:
+		return true
+	}
+	return false
+}
+
+func Build(p config.Provider, worktree, resumeSession string) (Command, error) {
 	var c Command
 	opt := func(flag, v string) {
 		if v != "" {
@@ -31,6 +39,7 @@ func Build(p config.Provider, worktree string) (Command, error) {
 	switch p.Harness {
 	case config.HarnessClaudeCode, config.HarnessGLMClaude:
 		c.Argv = []string{"claude", "-p", promptArg, "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--add-dir", worktree}
+		opt("--resume", resumeSession)
 		opt("--model", p.Model)
 		opt("--effort", p.Effort)
 		if p.ConfigDir != "" {
@@ -44,15 +53,18 @@ func Build(p config.Provider, worktree string) (Command, error) {
 		}
 	case config.HarnessKimiNative:
 		c.Argv = []string{"kimi", "--prompt", promptArg, "--output-format", "stream-json"}
+		opt("--session", resumeSession)
 		opt("--model", p.Model)
 	case config.HarnessOpenCode:
 		c.Argv = []string{"opencode", "run", "--format", "json", "--auto", "--dir", worktree}
+		opt("--session", resumeSession)
 		opt("--agent", p.HarnessAgent)
 		opt("--model", p.Model)
 		opt("--variant", p.Effort)
 		c.Argv = append(c.Argv, promptArg)
 	case config.HarnessAgy:
 		c.Argv = []string{"agy", "--mode", "accept-edits", "--dangerously-skip-permissions", "--add-dir", worktree, "--output-format", "stream-json"}
+		opt("--conversation", resumeSession)
 		opt("--model", p.Model)
 		opt("--effort", p.Effort)
 		c.Argv = append(c.Argv, "--print", promptArg)

@@ -38,7 +38,8 @@ orca-ide agent launch --agent claude --worktree "id:<wt_id>" --surface terminal 
 ## Resume Semantics
 
 - **Same-provider resume:**
-  - `claude --resume <session_id>` (or `-r <session_id>`) resumes a specific conversation by UUID or name.
+  - `claude --resume <session_id>` (or `-r <session_id>`) resumes a specific conversation by UUID or name. Verified live on 2026-11-21 with `-p --output-format stream-json`: the resumed run keeps the same `session_id`, recalls the earlier turn, and reads the prompt cache (`cache_read_input_tokens` > 0). hiraishin uses it when `failover_wait_max_min` lets a job wait for the same account's reset.
+  - Prompt-cache TTL: every cache write in the local transcripts (both config dirs, `cli` and `sdk-cli` entrypoints) was `ephemeral_1h_input_tokens`; none were 5m.
   - `claude --continue` (or `-c`) continues the most recent conversation in the current working directory.
   - `--fork-session` creates a new session ID on resume to preserve the original transcript.
   - Note: `--system-prompt-snapshot on` (default) reuses the first turn's system prompt verbatim across resumes until compaction.

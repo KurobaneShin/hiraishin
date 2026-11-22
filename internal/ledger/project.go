@@ -141,7 +141,7 @@ func (t *Tx) project(ctx context.Context, ev *Event) error {
 			p.AttemptID, ev.JobID, p.AttemptNum, p.ProviderID, p.DecisionID, p.AttemptDir, nullString(p.StartCommit), ts); err != nil {
 			return err
 		}
-		return t.exec(ctx, `UPDATE jobs SET state = ?, current_provider = ?, terminal_adapter = ?, terminal_handle = ?, updated_at = ? WHERE job_id = ?`,
+		return t.exec(ctx, `UPDATE jobs SET state = ?, current_provider = ?, terminal_adapter = ?, terminal_handle = ?, native_session_id = NULL, updated_at = ? WHERE job_id = ?`,
 			JobRunningState, p.ProviderID, p.TerminalAdapter, p.TerminalHandle, ts, ev.JobID)
 	case JobSpawnFailed:
 		next := JobFailedState

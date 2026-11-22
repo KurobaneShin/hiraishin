@@ -16,20 +16,20 @@ func (e *Engine) AttemptDir(jobID string, num int) string {
 	return filepath.Join(e.Paths.DataDir, "jobs", jobID, fmt.Sprintf("attempt-%d", num))
 }
 
-func (e *Engine) Launch(ctx context.Context, job ledger.JobRow, decisionID, providerID, prompt string) ledger.Event {
-	ev, err := e.launch(ctx, job, decisionID, providerID, prompt)
+func (e *Engine) Launch(ctx context.Context, job ledger.JobRow, decisionID, providerID, prompt, resumeSession string) ledger.Event {
+	ev, err := e.launch(ctx, job, decisionID, providerID, prompt, resumeSession)
 	if err != nil {
 		return ledger.Event{JobID: job.ID, ProviderID: providerID, Source: ledger.SourceScheduler, Payload: ledger.JobSpawnFailed{DecisionID: decisionID, Error: err.Error()}}
 	}
 	return ev
 }
 
-func (e *Engine) launch(ctx context.Context, job ledger.JobRow, decisionID, providerID, prompt string) (ledger.Event, error) {
+func (e *Engine) launch(ctx context.Context, job ledger.JobRow, decisionID, providerID, prompt, resumeSession string) (ledger.Event, error) {
 	prov, ok := e.Cfg.Providers[providerID]
 	if !ok {
 		return ledger.Event{}, fmt.Errorf("provider %q is not configured", providerID)
 	}
-	cmd, err := dispatch.Build(prov, job.WorktreePath)
+	cmd, err := dispatch.Build(prov, job.WorktreePath, resumeSession)
 	if err != nil {
 		return ledger.Event{}, err
 	}

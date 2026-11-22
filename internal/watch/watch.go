@@ -102,6 +102,11 @@ func (w *Watcher) Tick(ctx context.Context) (int, error) {
 	}
 	ledgerChanged := seq != w.seenSeq
 	w.seenSeq = seq
+	if len(pending) > 0 && ledgerChanged {
+		if latest, err = r.LatestAttempts(ctx, ledger.JobFailingOverState, ledger.JobWaitingQuotaState, ledger.JobQueuedState); err != nil {
+			return 0, err
+		}
+	}
 	for _, job := range pending {
 		if job.State == ledger.JobWaitingQuotaState && !ledgerChanged {
 			continue
@@ -286,10 +291,15 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 	trigger := map[string]string{ledger.JobFailingOverState: scheduler.TriggerFailover, ledger.JobWaitingQuotaState: scheduler.TriggerRetryAfterReset}[job.State]
 	trigger = cmp.Or(trigger, scheduler.TriggerInitial)
 	var exclude []string
+	resumable := w.resumable(job, att)
+	waitForReset := false
 	if att != nil {
-		if job.NeverSwitch {
+		switch {
+		case job.NeverSwitch:
 			job.PinnedProvider = cmp.Or(job.PinnedProvider, att.ProviderID)
-		} else if job.State == ledger.JobFailingOverState {
+		case job.PinnedProvider == "" && resumable:
+			waitForReset = true
+		case job.State == ledger.JobFailingOverState:
 			exclude = e.Cfg.PoolMembers(att.ProviderID)
 		}
 	}
@@ -297,8 +307,28 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 	err := e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
 		var dec ledger.Event
 		var err error
-		if d, dec, err = e.Decide(ctx, tx, job, trigger, exclude); err != nil {
-			return nil, err
+		if waitForReset {
+			pinned := job
+			pinned.PinnedProvider = att.ProviderID
+			if d, dec, err = e.Decide(ctx, tx, pinned, trigger, nil); err != nil {
+				return nil, err
+			}
+			if d.ChosenProvider == "" {
+				reset, err := w.resetAt(ctx, tx, att.ProviderID)
+				if err != nil {
+					return nil, err
+				}
+				waitForReset = !reset.IsZero() && !reset.After(att.EndedAt.Add(e.Cfg.General.FailoverWaitMax()))
+				d.EarliestResetAt = reset
+			}
+		}
+		if !waitForReset {
+			if job.State == ledger.JobFailingOverState && att != nil && !job.NeverSwitch {
+				exclude = e.Cfg.PoolMembers(att.ProviderID)
+			}
+			if d, dec, err = e.Decide(ctx, tx, job, trigger, exclude); err != nil {
+				return nil, err
+			}
 		}
 		switch {
 		case d.ChosenProvider != "":
@@ -315,16 +345,54 @@ func (w *Watcher) reschedule(ctx context.Context, job ledger.JobRow, att *ledger
 		}
 		return err
 	}
-	prompt, err := w.prompt(ctx, job, att)
+	session := ""
+	if resumable && d.ChosenProvider == att.ProviderID {
+		session = job.NativeSessionID
+	}
+	prompt, err := w.prompt(ctx, job, att, session != "")
 	if err != nil {
 		return err
 	}
-	ev := e.Launch(ctx, job, d.DecisionID, d.ChosenProvider, prompt)
+	ev := e.Launch(ctx, job, d.DecisionID, d.ChosenProvider, prompt, session)
 	w.log.Info("dispatching", "job", job.ID, "provider", d.ChosenProvider, "trigger", trigger, "kind", ev.Payload.Kind())
 	return e.Ledger.Append(ctx, ev)
 }
 
-func (w *Watcher) prompt(ctx context.Context, job ledger.JobRow, att *ledger.AttemptRow) (string, error) {
+func (w *Watcher) resumable(job ledger.JobRow, att *ledger.AttemptRow) bool {
+	if att == nil || att.EndedAt.IsZero() || job.NativeSessionID == "" {
+		return false
+	}
+	p, ok := w.engine.Cfg.Providers[att.ProviderID]
+	return ok && dispatch.CanResume(p.Harness) && !w.engine.Now().After(att.EndedAt.Add(w.engine.Cfg.General.FailoverWaitMax()))
+}
+
+func (w *Watcher) resetAt(ctx context.Context, tx *ledger.Tx, providerID string) (time.Time, error) {
+	providers, err := w.engine.Snapshot(ctx, tx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	reserve := w.engine.Cfg.General.ReserveUsedPct
+	var latest time.Time
+	for _, p := range providers {
+		if p.ID != providerID {
+			continue
+		}
+		for _, win := range p.Windows {
+			if win.UsedPct == nil || *win.UsedPct < reserve {
+				continue
+			}
+			if win.ResetsAt.IsZero() {
+				return time.Time{}, nil
+			}
+			if win.ResetsAt.After(latest) {
+				latest = win.ResetsAt
+			}
+		}
+	}
+	return latest, nil
+}
+
+func (w *Watcher) prompt(ctx context.Context, job ledger.JobRow, att *ledger.AttemptRow, native bool) (string, error) {
 	data := dispatch.PromptData{JobID: job.ID, JobName: job.Name, Worktree: job.WorktreePath, BriefPath: job.BriefPath, ReportPath: job.ReportPath}
 	if att == nil {
 		return dispatch.InitialPrompt(data)
@@ -337,7 +405,10 @@ func (w *Watcher) prompt(ctx context.Context, job ledger.JobRow, att *ledger.Att
 	if err != nil {
 		return "", err
 	}
-	data.FromProvider, data.Reason, data.Checkpoint = att.ProviderID, reason, cp
+	data.FromProvider, data.SessionID, data.Reason, data.Checkpoint = att.ProviderID, job.NativeSessionID, reason, cp
+	if native {
+		return dispatch.ContinuePrompt(data)
+	}
 	role, _, err := w.engine.Cfg.Role(job.Role)
 	if err != nil {
 		return "", err

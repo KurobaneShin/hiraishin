@@ -37,8 +37,11 @@ const routingHelp = `How hiraishin decides which agent runs a job.
    The agent runs in the job's git worktree. hiraishin watch reads its output.
    On a usage-limit message it stops the agent, keeps the worktree as it is,
    and routes the job again without that provider (failover). The next agent
-   gets a prompt with the previous provider, the reason, git status, diff and
-   the report. A role with never_switch_mid_task = true waits for the same
+   gets a prompt with the previous provider, the reason, git status, diff, the
+   report and the old session id to read in ai-memory. When that provider
+   resets within failover_wait_max_min (default 50) of the agent stopping, the
+   job waits for it instead and resumes the agent's own session, while the
+   prompt cache is still warm. A role with never_switch_mid_task = true waits for the same
    provider's reset instead (WAITING_QUOTA). When no provider passes the
    filter, the job waits and is routed again at the earliest reset.
 
