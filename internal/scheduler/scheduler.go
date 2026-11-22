@@ -77,6 +77,7 @@ type Request struct {
 	RuntimeProfile string
 	Prefers        []Prefer
 	Providers      []Provider
+	LearnDeltas    map[string]float64
 }
 
 type Features struct {
@@ -286,6 +287,9 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 	if state == ledger.StateDegraded {
 		c.DegradedPenalty = DegradedPenalty
 	}
+	if bound := cfg.Learning.MaxDelta; cfg.Learning.Enabled && bound > 0 {
+		c.LearnDelta = clamp(req.LearnDeltas[p.ID], -bound, bound)
+	}
 	c.Score = c.Weighted.Quality + c.Weighted.Expiry + c.Weighted.Scarcity + c.Weighted.Latency + c.OrderBonus + c.PreferBonus - c.DegradedPenalty + c.LearnDelta
 	return c
 }
@@ -399,6 +403,7 @@ func largestEdge(a, b *Candidate) (string, float64) {
 		{"order", a.OrderBonus - b.OrderBonus},
 		{"prefer", a.PreferBonus - b.PreferBonus},
 		{"degraded penalty", b.DegradedPenalty - a.DegradedPenalty},
+		{"learned", a.LearnDelta - b.LearnDelta},
 	}
 	best := parts[0]
 	for _, p := range parts[1:] {

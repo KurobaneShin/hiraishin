@@ -66,6 +66,20 @@ func TestLoadDefaults(t *testing.T) {
 	if c.General.ActiveProfile != "balanced" || c.General.ReserveUsedPct != 98 || !c.General.AllowFailoverPastReserve() {
 		t.Errorf("general defaults: %+v", c.General)
 	}
+	want := Learning{MinSamples: 5, MaxDelta: 0.12, EWMAAlpha: 0.25, WeightCompletion: 0.45, WeightReviewRounds: 0.25, WeightBuildFailures: 0.20, WeightDuration: 0.10}
+	if c.Learning != want {
+		t.Errorf("learning defaults = %+v, want %+v", c.Learning, want)
+	}
+}
+
+func TestLearningWeightsKeptWhenAnyIsSet(t *testing.T) {
+	c, err := Load(writeFile(t, minimal+"\n[learning]\nenabled = true\nweight_completion = 1.0\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Learning.Enabled || c.Learning.WeightCompletion != 1 || c.Learning.WeightDuration != 0 {
+		t.Errorf("learning = %+v", c.Learning)
+	}
 }
 
 func TestValidationErrors(t *testing.T) {
@@ -102,6 +116,11 @@ func TestValidationErrors(t *testing.T) {
 		{"same claude account twice", func(s string) string {
 			return strings.Replace(s, "kimi-native", "claude-code", 1) + "\n[providers.b]\nharness = \"claude-code\"\nquality_tier = 4\nscarcity_tier = 2\nspeed_tier = 4\n"
 		}, "use the same Claude account"},
+		{"negative max_delta", func(s string) string { return s + "\n[learning]\nmax_delta = -0.1\n" }, "learning.max_delta"},
+		{"max_delta too large", func(s string) string { return s + "\n[learning]\nmax_delta = 0.6\n" }, "learning.max_delta"},
+		{"ewma_alpha above 1", func(s string) string { return s + "\n[learning]\newma_alpha = 1.5\n" }, "learning.ewma_alpha"},
+		{"negative min_samples", func(s string) string { return s + "\n[learning]\nmin_samples = -1\n" }, "learning.min_samples"},
+		{"negative learning weight", func(s string) string { return s + "\n[learning]\nweight_duration = -0.1\n" }, "learning weights"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

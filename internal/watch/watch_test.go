@@ -440,3 +440,25 @@ func TestTickReloadsPreferencesWhenTheFileChanges(t *testing.T) {
 		t.Fatal("an invalid preferences file replaced the loaded config")
 	}
 }
+
+func TestCompletedJobFeedsLearning(t *testing.T) {
+	f := setup(t, map[string]string{"kimi": "exit 0"})
+	job := f.submit("default")
+	f.tickUntil("COMPLETED", f.state(job.ID))
+	rows, err := f.e.Ledger.Reader().LearningStats(context.Background(), "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ProviderID != "kimi" || rows[0].Samples != 1 || rows[0].CompletedOK != 1 || rows[0].EWMAQuality <= 0 {
+		t.Fatalf("learning stats after completion = %+v", rows)
+	}
+}
+
+func TestFailedJobDoesNotFeedLearning(t *testing.T) {
+	f := setup(t, map[string]string{"kimi": "exit 4"})
+	job := f.submit("default")
+	f.tickUntil("FAILED", func() bool { j, _ := f.job(job.ID); return j.State == ledger.JobFailedState })
+	if rows, err := f.e.Ledger.Reader().LearningStats(context.Background(), ""); err != nil || len(rows) != 0 {
+		t.Fatalf("learning stats after failure = %+v, %v", rows, err)
+	}
+}

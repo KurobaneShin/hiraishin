@@ -175,16 +175,20 @@ func (w *Watcher) check(ctx context.Context, job ledger.JobRow, att ledger.Attem
 	cp, _ := dispatch.ReadCheckpoint(ctx, job.WorktreePath)
 	delete(w.tails, att.ID)
 	if code == 0 {
-		evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobCompleted{AttemptID: att.ID, EndCommit: cp.Head, DurationMin: e.Now().Sub(att.StartedAt).Minutes()}})
+		minutes := e.Now().Sub(att.StartedAt).Minutes()
+		evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobCompleted{AttemptID: att.ID, EndCommit: cp.Head, DurationMin: minutes}})
 		w.log.Info("job completed", "job", job.ID, "provider", att.ProviderID)
-	} else {
-		reason := fmt.Sprintf("agent exited with code %d", code)
-		if code == -1 {
-			reason = "agent process ended without an exit code"
-		}
-		evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobFailed{AttemptID: att.ID, EndCommit: cp.Head, ExitCode: code, Reason: reason}})
-		w.log.Warn("job failed", "job", job.ID, "provider", att.ProviderID, "reason", reason)
+		return e.Ledger.Update(ctx, func(ctx context.Context, tx *ledger.Tx) ([]ledger.Event, error) {
+			outcome, err := e.OutcomeEvent(ctx, tx, att.ProviderID, job.Role, job.ID, ledger.SourceWatcher, scheduler.Outcome{Success: true, DurationMin: minutes})
+			return append(evs, outcome), err
+		})
 	}
+	reason := fmt.Sprintf("agent exited with code %d", code)
+	if code == -1 {
+		reason = "agent process ended without an exit code"
+	}
+	evs = append(evs, ledger.Event{JobID: job.ID, ProviderID: att.ProviderID, Source: ledger.SourceWatcher, Payload: ledger.JobFailed{AttemptID: att.ID, EndCommit: cp.Head, ExitCode: code, Reason: reason}})
+	w.log.Warn("job failed", "job", job.ID, "provider", att.ProviderID, "reason", reason)
 	return e.Ledger.Append(ctx, evs...)
 }
 

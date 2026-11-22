@@ -34,6 +34,10 @@ const (
 	KindJobCancelled       Kind = "job.cancelled"
 	KindJobPinned          Kind = "job.pinned"
 	KindJobUnpinned        Kind = "job.unpinned"
+	KindOutcomeRecorded    Kind = "learning.outcome_recorded"
+	KindLearnFrozen        Kind = "learning.frozen"
+	KindLearnUnfrozen      Kind = "learning.unfrozen"
+	KindLearnReset         Kind = "learning.reset"
 )
 
 type Payload interface{ Kind() Kind }
@@ -224,6 +228,29 @@ type JobUnpinned struct {
 	NeverSwitch bool `json:"never_switch"`
 }
 
+type OutcomeRecorded struct {
+	Role          string  `json:"role"`
+	Success       bool    `json:"success"`
+	ReviewRounds  int     `json:"review_rounds"`
+	BuildFailures int     `json:"build_failures"`
+	DurationMin   float64 `json:"duration_min"`
+	Quality       float64 `json:"quality"`
+	Alpha         float64 `json:"alpha"`
+	Frozen        bool    `json:"frozen"`
+}
+
+type LearnFrozen struct {
+	By string `json:"by"`
+}
+
+type LearnUnfrozen struct {
+	By string `json:"by"`
+}
+
+type LearnReset struct {
+	By string `json:"by"`
+}
+
 func (ProviderConfigured) Kind() Kind { return KindProviderConfigured }
 
 func (QuotaSampled) Kind() Kind { return KindQuotaSampled }
@@ -275,3 +302,11 @@ func (JobCancelled) Kind() Kind { return KindJobCancelled }
 func (JobPinned) Kind() Kind { return KindJobPinned }
 
 func (JobUnpinned) Kind() Kind { return KindJobUnpinned }
+
+func (OutcomeRecorded) Kind() Kind { return KindOutcomeRecorded }
+
+func (LearnFrozen) Kind() Kind { return KindLearnFrozen }
+
+func (LearnUnfrozen) Kind() Kind { return KindLearnUnfrozen }
+
+func (LearnReset) Kind() Kind { return KindLearnReset }

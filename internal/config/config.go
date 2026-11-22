@@ -253,6 +253,7 @@ func (c *Config) applyDefaults() {
 	if c.General.ReserveUsedPct == 0 {
 		c.General.ReserveUsedPct = 98
 	}
+	c.Learning.applyDefaults()
 	for id, p := range c.Providers {
 		if p.CostClass == "" {
 			p.CostClass = "subscription"
@@ -296,7 +297,42 @@ func (c *Config) Validate() error {
 		errs = append(errs, c.validateRole(name, r)...)
 	}
 	errs = append(errs, c.validateClaudeAccounts()...)
+	errs = append(errs, c.Learning.validate()...)
 	return errors.Join(errs...)
+}
+
+const MaxLearnDelta = 0.5
+
+func (l *Learning) applyDefaults() {
+	if l.MinSamples == 0 {
+		l.MinSamples = 5
+	}
+	if l.MaxDelta == 0 {
+		l.MaxDelta = 0.12
+	}
+	if l.EWMAAlpha == 0 {
+		l.EWMAAlpha = 0.25
+	}
+	if l.WeightCompletion == 0 && l.WeightReviewRounds == 0 && l.WeightBuildFailures == 0 && l.WeightDuration == 0 {
+		l.WeightCompletion, l.WeightReviewRounds, l.WeightBuildFailures, l.WeightDuration = 0.45, 0.25, 0.20, 0.10
+	}
+}
+
+func (l Learning) validate() []error {
+	var errs []error
+	if l.MaxDelta < 0 || l.MaxDelta > MaxLearnDelta {
+		errs = append(errs, fmt.Errorf("learning.max_delta = %g: want 0 <= max_delta <= %g", l.MaxDelta, MaxLearnDelta))
+	}
+	if l.EWMAAlpha < 0 || l.EWMAAlpha > 1 {
+		errs = append(errs, fmt.Errorf("learning.ewma_alpha = %g: want 0 < ewma_alpha <= 1", l.EWMAAlpha))
+	}
+	if l.MinSamples < 0 {
+		errs = append(errs, fmt.Errorf("learning.min_samples = %d: want >= 0", l.MinSamples))
+	}
+	if min(l.WeightCompletion, l.WeightReviewRounds, l.WeightBuildFailures, l.WeightDuration) < 0 {
+		errs = append(errs, fmt.Errorf("learning weights must be >= 0"))
+	}
+	return errs
 }
 
 func ExpandHome(path, home string) string {

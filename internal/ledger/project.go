@@ -168,6 +168,15 @@ func (t *Tx) project(ctx context.Context, ev *Event) error {
 		return t.exec(ctx, `UPDATE jobs SET pinned_provider = ?, never_switch = 1, updated_at = ? WHERE job_id = ?`, p.Provider, ts, ev.JobID)
 	case JobUnpinned:
 		return t.exec(ctx, `UPDATE jobs SET pinned_provider = NULL, never_switch = ?, updated_at = ? WHERE job_id = ?`, boolInt(p.NeverSwitch), ts, ev.JobID)
+	case OutcomeRecorded:
+		return t.projectOutcome(ctx, ev.ProviderID, p, ts)
+	case LearnFrozen:
+		return t.exec(ctx, `INSERT INTO runtime_state(key, value, updated_at) VALUES ('learning_frozen', '1', ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, ts)
+	case LearnUnfrozen:
+		return t.exec(ctx, `DELETE FROM runtime_state WHERE key = 'learning_frozen'`)
+	case LearnReset:
+		return t.exec(ctx, `DELETE FROM learning_stats`)
 	case ProbeFailed:
 		return nil
 	default:
@@ -196,6 +205,26 @@ func (t *Tx) projectDecision(ctx context.Context, ev *Event, p DecisionMade, ts 
 		return err
 	}
 	return t.exec(ctx, `UPDATE jobs SET state = ?, current_provider = ?, updated_at = ? WHERE job_id = ?`, JobDispatchingState, p.ChosenProvider, ts, ev.JobID)
+}
+
+func (t *Tx) projectOutcome(ctx context.Context, providerID string, p OutcomeRecorded, ts string) error {
+	if p.Frozen {
+		return nil
+	}
+	a := p.Alpha
+	return t.exec(ctx, `INSERT INTO learning_stats(provider_id, role, samples, completed_ok, avg_review_rounds, avg_build_failures, avg_duration_min, ewma_quality, updated_at)
+		VALUES (?, ?, 1, ?, ?, ?, MAX(?, 0), ?, ?)
+		ON CONFLICT(provider_id, role) DO UPDATE SET
+			samples = samples + 1,
+			completed_ok = completed_ok + excluded.completed_ok,
+			avg_review_rounds = (1 - ?) * avg_review_rounds + ? * excluded.avg_review_rounds,
+			avg_build_failures = (1 - ?) * avg_build_failures + ? * excluded.avg_build_failures,
+			avg_duration_min = CASE WHEN excluded.avg_duration_min <= 0 THEN avg_duration_min
+				WHEN avg_duration_min <= 0 THEN excluded.avg_duration_min
+				ELSE (1 - ?) * avg_duration_min + ? * excluded.avg_duration_min END,
+			ewma_quality = (1 - ?) * ewma_quality + ? * excluded.ewma_quality,
+			updated_at = excluded.updated_at`,
+		providerID, p.Role, boolInt(p.Success), p.ReviewRounds, p.BuildFailures, p.DurationMin, p.Quality, ts, a, a, a, a, a, a, a, a)
 }
 
 func (t *Tx) releaseAndSet(ctx context.Context, jobID, next, attemptID, exitReason, endCommit, ts string) error {
