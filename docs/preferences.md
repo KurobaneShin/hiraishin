@@ -61,29 +61,32 @@ latency  = 0.10   # Preference for faster / lower-overhead harnesses
 # Bounded learning configuration
 # ---------------------------------------------------------------------------
 [learning]
-# Master switch. When false, learned deltas are ignored (0.0 everywhere).
+# Master switch. When false (the default when omitted), learned deltas are
+# ignored (0.0 everywhere); outcomes are still recorded.
 enabled = true
 
-# Freeze prevents new outcome records from changing bounded_delta while still
-# recording outcomes to the ledger for inspection.
+# Same as `hiraishin learn freeze`: outcomes are still logged to the ledger,
+# but learning_stats and every learned delta stay as they are.
 frozen = false
 
-# Minimum completed jobs for a (provider, role) pair before learning applies.
+# Outcomes a (provider, role) pair needs before its delta applies. Default 5.
 min_samples = 5
 
-# Maximum score adjustment (in normalized [0.0, 1.0] score space) that learning
-# may add or subtract. Learning can NEVER violate hard gates (deny list,
-# allowed list, min_quality_tier, pin, concurrency cap, metered opt-in).
+# Largest score adjustment (normalized score space) learning may add or
+# subtract, 0 < max_delta <= 0.5. Default 0.12. Learning can NEVER violate
+# hard gates (deny list, allowed list, min_quality_tier, pin, concurrency cap,
+# metered opt-in).
 max_delta = 0.12
 
-# Exponential moving average smoothing factor for recent outcomes (0.0..1.0).
+# EWMA smoothing factor for new outcomes, 0 < ewma_alpha <= 1. Default 0.25.
 ewma_alpha = 0.25
 
 # Relative weights inside the raw outcome quality signal (sum to 1.0).
+# Defaults below apply only when all four are omitted.
 weight_completion     = 0.45   # Completed without human takeover
 weight_review_rounds  = 0.25   # Fewer review/fix rounds before merge
 weight_build_failures = 0.20   # Fewer build/gate failures
-weight_duration       = 0.10   # Faster completion relative to role median
+weight_duration       = 0.10   # Faster completion relative to the role average
 
 # ---------------------------------------------------------------------------
 # Provider inventory (`hiraishin init` detects installed CLIs/logins; user confirms)
@@ -612,30 +615,41 @@ Where:
 
 ## Bounded Learning and Freezing
 
-When a job finishes (or fails / requires human rescue), an outcome record is appended (`learning.outcome_recorded`):
+Learning keeps one row per `(provider, role)` in the `learning_stats` table. The role is the job's role name. Two sources append a `learning.outcome_recorded` event:
 
-- `success` $\in \{0, 1\}$ (completed without manual takeover)
+- every `job.completed` seen by `hiraishin watch` (success, wall minutes of the last attempt);
+- `hiraishin outcome record <provider> <role> [--failed] [--review-rounds N] [--build-failures N] [--duration-min M]`, for what only you know (review rounds, build failures, a human takeover).
+
+Each outcome carries:
+
+- `success` $\in \{0, 1\}$ (completed without manual takeover; `--failed` sets 0)
 - `review_rounds` $\ge 0$ (PR review or fix cycles)
 - `build_failures` $\ge 0$ (build or gate failures)
-- `duration_min` $> 0$ (wall time relative to the role's rolling median $M_r$)
+- `duration_min` $\ge 0$ (wall time; `0` means unknown and scores neutral)
 
-For each outcome, a raw quality score $y \in [0, 1]$ is computed:
+For each outcome, a raw quality score $y$ is computed with the `weight_*` keys (defaults shown):
 
 $$y = 0.45 \cdot \text{success} + 0.25 \cdot \frac{1}{1 + \text{review\_rounds}} + 0.20 \cdot \frac{1}{1 + \text{build\_failures}} + 0.10 \cdot \text{clamp}\left(\frac{M_r}{\text{duration\_min}}, 0.2, 1.0\right)$$
 
-The per-`(provider, role)` EWMA $\hat{y}_{p,r}$ updates as:
+$M_r$ is the mean of the EWMA durations of every provider tried for role $r$. The duration term is `1.0` when the duration or $M_r$ is unknown. The event stores $y$ and `ewma_alpha`, so replaying the ledger gives the same stats.
+
+The per-`(provider, role)` EWMA $\hat{y}_{p,r}$ starts at the first $y$ and then updates as:
 
 $$\hat{y}_{p,r} \leftarrow (1 - \alpha)\,\hat{y}_{p,r} + \alpha\,y$$
 
-Compared against the role's baseline average $\bar{y}_r$ across all providers tried for role $r$, the bounded delta is:
+At each decision, the delta is computed against the role's baseline $\bar{y}_r$, the mean $\hat{y}$ of every provider tried for role $r$:
 
 $$\Delta_{\text{learn}}(p, r) = \text{clamp}\left((\hat{y}_{p,r} - \bar{y}_r) \cdot \text{max\_delta} \cdot 2,\; -\text{max\_delta},\; +\text{max\_delta}\right)$$
 
+The scheduler clamps the delta to `±max_delta` a second time when it adds it to the score.
+
 ### Guardrails
 
-- **Cannot break a rule:** Learning runs only in Stage 2 after Stage 1 hard gates. It can never enable a denied provider, bypass `min_quality_tier`, override a pin, or turn on a metered API.
-- **Cold-start protection:** $\Delta_{\text{learn}} = 0$ until `samples >= min_samples` (default `5`).
-- **One-command freeze:** `hiraishin learn freeze` (or `hiraishin learn freeze --provider kimi-native --role gameplay`) sets `frozen = 1`. Outcomes continue to be logged for visibility, while `bounded_delta` stays locked at its current value. `hiraishin learn reset` zeroes `bounded_delta` back to `0.0`.
+- **Cannot break a rule:** Learning runs only in Stage 2 after Stage 1 hard gates. It can never enable a denied provider, bypass `min_quality_tier`, override a pin, fill a full slot, or turn on a metered API. Property-based tests over thousands of random configs check this.
+- **Cold-start protection:** $\Delta_{\text{learn}} = 0$ until `samples >= min_samples` (default `5`). A provider alone in a role is its own baseline, so its delta is `0`.
+- **One-command freeze:** `hiraishin learn freeze` (or `[learning] frozen = true`) stops outcomes from changing `learning_stats`, so every delta and score stays fixed from the next decision on. Outcomes are still appended to the ledger with `frozen: true`. Freeze is global. `hiraishin learn unfreeze` lets new outcomes count again; outcomes logged while frozen are not replayed.
+- **Reset:** `hiraishin learn reset` deletes every learned stat. All deltas return to `0.0` until each pair has `min_samples` new outcomes.
+- **Inspect:** `hiraishin learn status` prints the switches and, per role and provider, samples, completed count, $\hat{y}$ and the delta the scheduler adds now. `hiraishin why` shows the same delta as `learned` in each candidate's bonus line.
 
 ## The `why` Output Format
 
@@ -677,4 +691,5 @@ All runtime overrides write an event to the ledger and take effect immediately w
 | `hiraishin drain <provider> [--reason "..."]` | Transitions provider to `DRAINING`; running jobs finish, then transitions to `PAUSED` | Until `hiraishin resume <provider>` |
 | `hiraishin resume <provider>` | Returns a `PAUSED` or `DRAINING` provider to `AVAILABLE` (or `EXHAUSTED` if window is still empty) | Immediate |
 | `hiraishin why <job_id \| decision_id> [--all] [--json]` | Prints the full Stage 1 & Stage 2 trace for the latest (or all) scheduling decisions | Read-only |
-| `hiraishin learn status \| freeze \| unfreeze \| reset` | Inspects per-(provider, role) EWMA stats, freezes updates, or resets deltas to `0.0` | Global or `--provider` + `--role` |
+| `hiraishin outcome record <provider> <role> [--failed] [--review-rounds N] [--build-failures N] [--duration-min M]` | Appends one outcome for learning (`job.completed` under `hiraishin watch` records one automatically) | Ignored by stats while frozen |
+| `hiraishin learn status \| freeze \| unfreeze \| reset` | Inspects per-(provider, role) EWMA stats and current deltas, freezes or unfreezes updates, or deletes all stats (deltas back to `0.0`) | Global |

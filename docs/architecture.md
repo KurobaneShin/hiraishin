@@ -152,9 +152,8 @@ Primary key: `(provider_id, window_name)`.
 | `completed_ok` | `INTEGER` | `NOT NULL DEFAULT 0` | Finished without human takeover |
 | `avg_review_rounds` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA of review/fix rounds before merge |
 | `avg_build_failures` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA of build/gate failures |
-| `avg_duration_min` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA wall minutes to completion |
-| `bounded_delta` | `REAL` | `NOT NULL DEFAULT 0.0` | Clamped adjustment in `[-max_delta, +max_delta]` |
-| `frozen` | `INTEGER` | `NOT NULL DEFAULT 0` | `1` if frozen globally or for this pair |
+| `avg_duration_min` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA wall minutes to completion (unknown durations skipped) |
+| `ewma_quality` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA of the outcome quality score `y`; the scheduler derives the clamped delta from it against the role baseline at decision time |
 | `updated_at` | `TEXT` | `NOT NULL` | Last update timestamp |
 
 Primary key: `(provider_id, role)`.
@@ -189,8 +188,9 @@ Every mutation enters `events` first.
 | Job | `job.failed` | Watcher / CLI | `exit_code`, `reason` |
 | Job | `job.cancelled` | CLI / MCP | `by`, `reason` |
 | Job | `job.pinned` / `job.unpinned` | CLI | `provider` / `never_switch` |
-| Learning | `learning.outcome_recorded` | CLI / MCP | `provider_id`, `role`, `success`, `review_rounds`, `build_failures`, `duration_min` |
-| Learning | `learning.frozen` / `learning.unfrozen` | CLI / MCP | `scope` (`global` or `provider:role`) |
+| Learning | `learning.outcome_recorded` | CLI / Watcher | `role`, `success`, `review_rounds`, `build_failures`, `duration_min`, `quality`, `alpha`, `frozen` (stats untouched when `true`) |
+| Learning | `learning.frozen` / `learning.unfrozen` | CLI | `by` (global freeze, stored in `runtime_state`) |
+| Learning | `learning.reset` | CLI | `by` (deletes every `learning_stats` row) |
 
 ## State Machines
 
