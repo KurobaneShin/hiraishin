@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -50,6 +51,7 @@ type trace struct {
 	jobs     map[string]jobSpec
 	samples  map[sampleKey]quotaSample
 	rates    map[sampleKey]float64
+	skipped  int
 }
 
 type jobSpec struct {
@@ -167,7 +169,9 @@ func (t *trace) index() error {
 	for id, job := range t.jobs {
 		e, ok := completed[id]
 		if !ok {
-			return fmt.Errorf("job %q has no completion duration", id)
+			delete(t.jobs, id)
+			t.skipped++
+			continue
 		}
 		var p ledger.JobCompleted
 		if err := json.Unmarshal(e.payload, &p); err != nil {
@@ -183,6 +187,10 @@ func (t *trace) index() error {
 		job.duration = time.Duration(minutes * float64(time.Minute))
 		t.jobs[id] = job
 	}
+	if len(t.jobs) == 0 {
+		return fmt.Errorf("ledger has no completed jobs")
+	}
+	t.arrivals = slices.DeleteFunc(t.arrivals, func(e rawEvent) bool { _, ok := t.jobs[e.jobID]; return !ok })
 	sort.Slice(t.arrivals, func(i, j int) bool {
 		if t.arrivals[i].ts.Equal(t.arrivals[j].ts) {
 			return t.arrivals[i].jobID < t.arrivals[j].jobID

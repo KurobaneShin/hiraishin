@@ -218,3 +218,20 @@ func TestReplay24Hour12FrontLedgerUnderTwoSeconds(t *testing.T) {
 		t.Fatalf("replay took %s, want under 2s", elapsed)
 	}
 }
+
+func TestReplaySkipsJobsThatNeverCompleted(t *testing.T) {
+	path := failoverLedger(t)
+	l, err := ledger.Open(context.Background(), path, func() time.Time { return fixtureStart })
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, l, fixtureStart.Add(30*time.Minute), "", "job_running", ledger.JobQueued{Name: "front-02", Role: "default", WorktreePath: "/front-02", Branch: "front-02", BriefPath: "/front-02/brief.md", TerminalAdapter: "process"})
+	_ = l.Close()
+	rows, err := Replay(context.Background(), path, []Policy{{Name: "quality-first", Config: testConfig("quality-first", 1)}})
+	if err != nil {
+		t.Fatalf("a live ledger with a running job must replay: %v", err)
+	}
+	if rows[0].SkippedJobs != 1 || rows[0].FailoverCount != 1 {
+		t.Fatalf("metrics = %+v", rows[0])
+	}
+}

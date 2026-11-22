@@ -25,6 +25,7 @@ type Metrics struct {
 	TotalStallMinutes        float64 `json:"total_stall_minutes"`
 	FailoverCount            int     `json:"failover_count"`
 	ScarcePoolReserveLeftPct float64 `json:"scarce_pool_reserve_left_pct"`
+	SkippedJobs              int     `json:"skipped_jobs,omitempty"`
 }
 
 type windowState struct {
@@ -436,7 +437,7 @@ func (r *replay) metrics(name string) Metrics {
 		}
 		stall += total.Minutes()
 	}
-	m := Metrics{Policy: name, TotalStallMinutes: stall, FailoverCount: r.failovers, ScarcePoolReserveLeftPct: r.scarceReserve()}
+	m := Metrics{Policy: name, TotalStallMinutes: stall, FailoverCount: r.failovers, ScarcePoolReserveLeftPct: r.scarceReserve(), SkippedJobs: r.trace.skipped}
 	if capacity > 0 {
 		m.PerishableQuotaUsedPct = used / capacity * 100
 		m.ExpiredWastedQuotaPct = expired / capacity * 100
