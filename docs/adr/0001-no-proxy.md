@@ -9,8 +9,8 @@ Subscription-backed coding tools (Claude Code, Kimi Code, Z.AI GLM Coding Plan, 
 
 ## Decision
 
-`aq` never proxies API traffic, terminates TLS, extracts session cookies, or relays tokens across harnesses. Every model runs natively inside its own official CLI (or the user's configured harness such as OpenCode), and `aq` orchestrates processes from the outside.
+`hiraishin` never proxies API traffic, terminates TLS, extracts session cookies, or relays tokens across harnesses. Every model runs natively inside its own official CLI (or the user's configured harness such as OpenCode), and `hiraishin` orchestrates processes from the outside.
 
 ## Consequences
 
-Mid-turn model switching inside a single HTTP request is impossible; failover happens at the process/worktree boundary instead. In exchange, `aq` stays compliant with subscription terms, preserves native CLI features (skills, hooks, prompt cache), and avoids maintaining brittle wire-format translators.
+Mid-turn model switching inside a single HTTP request is impossible; failover happens at the process/worktree boundary instead. In exchange, `hiraishin` stays compliant with subscription terms, preserves native CLI features (skills, hooks, prompt cache), and avoids maintaining brittle wire-format translators.

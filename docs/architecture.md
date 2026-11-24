@@ -1,6 +1,6 @@
 # Architecture
 
-`aq` is a local-first Go daemon and CLI ([ADR 0002](adr/0002-go-single-binary.md)) backed by an append-only SQLite event ledger ([ADR 0003](adr/0003-sqlite-event-ledger.md)). It never proxies model traffic ([ADR 0001](adr/0001-no-proxy.md)): every coding agent runs natively in its own official CLI (or user-configured harness such as OpenCode), inside a git worktree that serves as the recovery checkpoint ([ADR 0004](adr/0004-worktree-as-checkpoint.md)).
+`hiraishin` is a local-first Go daemon and CLI ([ADR 0002](adr/0002-go-single-binary.md)) backed by an append-only SQLite event ledger ([ADR 0003](adr/0003-sqlite-event-ledger.md)). It never proxies model traffic ([ADR 0001](adr/0001-no-proxy.md)): every coding agent runs natively in its own official CLI (or user-configured harness such as OpenCode), inside a git worktree that serves as the recovery checkpoint ([ADR 0004](adr/0004-worktree-as-checkpoint.md)).
 
 ## Pipeline Overview
 
@@ -25,27 +25,28 @@ flowchart LR
 
 ## Components
 
-| Component | Package (planned) | Responsibility |
+| Component | Package | Responsibility |
 |---|---|---|
 | **Sensors** | `internal/sensor` | Collect quota utilization, reset timestamps, and rate-limit signals from a provider using a tiered reliability chain (first-party usage endpoint -> local CLI logs/DB -> terminal output regex with recorded fixtures -> local token estimator). Never scrapes web cookies or proxies inference. |
 | **Event Ledger** | `internal/ledger` | Append-only SQLite store (WAL mode, pure-Go `modernc.org/sqlite`). Persists every sample, decision, `why` trace, job transition, failover, and outcome. Projections (`provider_windows`, `jobs`, `learning_stats`) are rebuilt or updated transactionally from events. |
-| **Forecast** | `internal/forecast` | Pure functions over recent `QuotaSample` events and active job counts. Computes exponentially weighted burn rate (`pct_per_hour`), `time_to_empty`, `time_to_reset`, and `perishable_waste_risk` (fraction of remaining window projected to expire unused before reset). |
+| **Forecast** (v0.2) | `internal/forecast` | Pure functions over recent `QuotaSample` events and active job counts. Computes exponentially weighted burn rate (`pct_per_hour`), `time_to_empty`, `time_to_reset`, and `perishable_waste_risk` (fraction of remaining window projected to expire unused before reset, capped by the room a longer window leaves beyond its pace). The burn rate uses only samples of the current reset window. |
 | **Scheduler** | `internal/scheduler` | Evaluates hard policy gates (inventory enabled, concurrency cap, deny list, min quality tier, pin, cooldown) and scores eligible providers with the active objective profile plus bounded learned adjustments ([preferences.md](preferences.md)). Always emits a structured `Decision` with a human-readable `WhyTrace`. |
 | **Dispatcher** | `internal/dispatch` | Prepares the job's git worktree, builds either the initial launch prompt or a failover resume prompt (pulling git status/diff, report file, and optional `ai-memory`/`qmd`/`graphify` context), selects the harness command line, and hands execution to a terminal adapter. |
-| **Harness Adapters** | `internal/harness` | Provider-specific translators (`claude-code`, `kimi-native`, `glm-claude`, `opencode`, `antigravity-agy`, `codex`, `gemini-cli`). Encapsulate CLI flags for headless vs. interactive mode, session ID extraction, native resume flags, environment variables, and limit-error regex patterns. |
-| **Terminal Adapters** | `internal/terminal` | Execution surfaces (`process` via `os/exec` + PTY/pipes, `tmux` pane manager, `orca` via `orca-ide` CLI). Provide a uniform interface: `Spawn`, `Inspect`, `SendText`, `TailOutput`, `Stop`. |
-| **Failover Watcher** | `internal/watcher` | Subscribes to terminal output streams and process exit codes for every running job. Matches harness-specific limit/auth/quota error patterns, records a `provider.limit_hit` event, marks the window `EXHAUSTED`, stops the stalled process cleanly (preserving uncommitted files), and triggers re-scheduling on the next allowed provider unless `never_switch_mid_task` is set. |
-| **MCP Server** | `internal/mcp` | Local stdio MCP server exposing read-only status (`aq_status`, `aq_why`, `aq_forecast`) and orchestration actions (`aq_pick_provider`, `aq_dispatch`, `aq_pause`, `aq_drain`, `aq_pin`) so a supervisor agent can coordinate fleets without shelling out. |
+| **Harness Adapters** | `internal/dispatch` (`harness.go`) | Provider-specific translators (`claude-code`, `kimi-native`, `glm-claude`, `opencode`, `antigravity-agy`, `codex`, `gemini-cli`). Encapsulate CLI flags for headless vs. interactive mode, session ID extraction, native resume flags, environment variables, and limit-error regex patterns. |
+| **Terminal Adapters** | `internal/dispatch` (`adapter.go`) | Execution surfaces (`process` via `os/exec` in its own session, `tmux` window in session `hiraishin`, `orca` via `orca-ide terminal create`). Each runs the same per-attempt `run.sh` wrapper, which records the process group, tees `output.log` and writes the exit code, so `Stop` (SIGINT, SIGTERM, SIGKILL on the group) and output tailing are uniform across adapters. |
+| **Failover Watcher** | `internal/watch` | Subscribes to terminal output streams and process exit codes for every running job. Matches harness-specific limit/auth/quota error patterns, records a `provider.limit_hit` event, marks the window `EXHAUSTED`, stops the stalled process cleanly (preserving uncommitted files), and triggers re-scheduling on the next allowed provider unless `never_switch_mid_task` is set. |
+| **Engine** | `internal/engine` | Glue used by the CLI and the watcher: opens config + ledger, syncs configured providers, emits maintenance events (cooldown recovery, window resets), turns scheduler decisions into ledger events and launches attempts. |
+| **MCP Server** (v0.2) | `internal/mcp` | Local stdio MCP server exposing read-only status (`hiraishin_status`, `hiraishin_why`, `hiraishin_forecast`) and orchestration actions (`hiraishin_pick_provider`, `hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, `hiraishin_pin`) so a supervisor agent can coordinate fleets without shelling out. |
 
 ### Key Scheduling Invariants
 
 1. **No mid-task switching unless exhausted.** Prompt caches are per-model and switching models mid-stream wastes context and causes drift. A running job stays on its assigned provider until completion, cancellation, or provider exhaustion.
 2. **Reset returns new work only.** When an exhausted provider's window resets, it transitions back to `AVAILABLE` and becomes eligible for newly dispatched jobs (and future failovers); already-running jobs on a fallback provider are not disrupted.
-3. **Bounded concurrency per provider.** Each provider has an explicit `max_concurrent` slot cap enforced atomically in the ledger transaction before launch.
+3. **Bounded concurrency per provider.** A provider may set a `max_concurrent` slot cap; with or without it, the quota brake rejects a launch whose projected pool burn (measured burn per job × running jobs) would reach `reserve_used_pct` before the window resets or the job ends. Both are checked in the ledger transaction before launch.
 
 ## Data Model (SQLite)
 
-Database path: `${XDG_DATA_HOME:-~/.local/share}/aq/ledger.db` (WAL mode, `busy_timeout = 5000`, `foreign_keys = ON`).
+Database path: `${XDG_DATA_HOME:-~/.local/share}/hiraishin/ledger.db` (WAL mode, `busy_timeout = 5000`, `foreign_keys = ON`).
 
 ### `events` (append-only source of truth)
 
@@ -123,7 +124,7 @@ Primary key: `(provider_id, window_name)`.
 | `profile` | `TEXT` | `NOT NULL` | Active objective profile name |
 | `chosen_provider` | `TEXT` | `NULL` | Selected provider (`NULL` if no eligible provider -> `WAITING_QUOTA`) |
 | `candidates_json` | `TEXT` | `NOT NULL` | Full JSON array of every candidate's score breakdown and hard-gate pass/reject reasons |
-| `summary` | `TEXT` | `NOT NULL` | Single-paragraph human explanation rendered by `aq why` |
+| `summary` | `TEXT` | `NOT NULL` | Single-paragraph human explanation rendered by `hiraishin why` |
 | `created_at` | `TEXT` | `NOT NULL` | Decision timestamp |
 
 ### `job_attempts` (per-provider execution segments)
@@ -151,9 +152,8 @@ Primary key: `(provider_id, window_name)`.
 | `completed_ok` | `INTEGER` | `NOT NULL DEFAULT 0` | Finished without human takeover |
 | `avg_review_rounds` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA of review/fix rounds before merge |
 | `avg_build_failures` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA of build/gate failures |
-| `avg_duration_min` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA wall minutes to completion |
-| `bounded_delta` | `REAL` | `NOT NULL DEFAULT 0.0` | Clamped adjustment in `[-max_delta, +max_delta]` |
-| `frozen` | `INTEGER` | `NOT NULL DEFAULT 0` | `1` if frozen globally or for this pair |
+| `avg_duration_min` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA wall minutes to completion (unknown durations skipped) |
+| `ewma_quality` | `REAL` | `NOT NULL DEFAULT 0.0` | EWMA of the outcome quality score `y`; the scheduler derives the clamped delta from it against the role baseline at decision time |
 | `updated_at` | `TEXT` | `NOT NULL` | Last update timestamp |
 
 Primary key: `(provider_id, role)`.
@@ -166,23 +166,32 @@ Every mutation enters `events` first.
 |---|---|---|---|
 | Sensor | `sensor.quota_sampled` | Sensors | `window_name`, `used_pct`, `resets_at`, `confidence`, `raw_tokens` |
 | Sensor | `sensor.probe_failed` | Sensors | `sensor_tier`, `error`, `http_status` |
+| Provider | `provider.configured` | Engine (config sync) | `harness`, `max_concurrent` |
+| Provider | `provider.degraded` | Watcher | `matched_pattern`, `excerpt`, `cooldown_until` |
+| Provider | `provider.recovered` | Engine (cooldown expiry) | `previous_state` |
 | Provider | `provider.limit_hit` | Watcher / Sensor | `window_name`, `matched_pattern`, `excerpt`, `estimated_reset_at` |
 | Provider | `provider.auth_failed` | Watcher / Sensor | `http_status`, `excerpt` |
 | Provider | `provider.window_reset` | Forecast / Sensor | `window_name`, `previous_state`, `resets_at_next` |
 | Provider | `provider.paused` | CLI / MCP | `reason`, `by` |
 | Provider | `provider.resumed` | CLI / MCP | `by` |
 | Provider | `provider.draining` | CLI / MCP | `reason`, `by` |
-| Scheduler | `scheduler.decision_made` | Scheduler | `decision_id`, `trigger`, `profile`, `chosen_provider`, `candidates` |
+| Runtime | `runtime.profile_set` | CLI | `profile`, `by` |
+| Runtime | `runtime.prefer_set` / `runtime.prefer_cleared` | CLI | `role`, `expires_at`, `by` |
+| Scheduler | `scheduler.decision_made` | Scheduler | `decision_id`, `trigger`, `profile`, `role`, `min_quality_tier`, `weights`, `chosen_provider`, `candidates`, `summary`, `earliest_reset_at`, `blocked_providers` |
 | Job | `job.queued` | CLI / MCP | `name`, `role`, `worktree_path`, `branch`, `brief_path`, `size_tier` |
 | Job | `job.dispatched` | Dispatcher | `attempt_id`, `provider_id`, `terminal_adapter`, `terminal_handle`, `start_commit` |
+| Job | `job.spawn_failed` | Dispatcher | `decision_id`, `error`, `retryable` |
 | Job | `job.session_detected` | Watcher | `native_session_id` |
 | Job | `job.failover_started` | Watcher | `from_provider`, `reason`, `dirty_files`, `head_commit` |
 | Job | `job.waiting_quota` | Scheduler | `earliest_reset_at`, `blocked_providers` |
 | Job | `job.completed` | Watcher / CLI | `end_commit`, `duration_min`, `pr_url` |
 | Job | `job.failed` | Watcher / CLI | `exit_code`, `reason` |
 | Job | `job.cancelled` | CLI / MCP | `by`, `reason` |
-| Learning | `learning.outcome_recorded` | CLI / MCP | `provider_id`, `role`, `success`, `review_rounds`, `build_failures`, `duration_min` |
-| Learning | `learning.frozen` / `learning.unfrozen` | CLI / MCP | `scope` (`global` or `provider:role`) |
+| Job | `job.pinned` / `job.unpinned` | CLI | `provider` / `never_switch` |
+| Learning | `learning.outcome_recorded` | CLI / Watcher | `role`, `success`, `review_rounds`, `build_failures`, `duration_min`, `quality`, `alpha`, `frozen` (stats untouched when `true`) |
+| Learning | `learning.frozen` / `learning.unfrozen` | CLI | `by` (global freeze, stored in `runtime_state`) |
+| Learning | `learning.reset` | CLI | `by` (deletes every `learning_stats` row) |
+| Quota | `quota.job_burn` | Watcher | `attempt_id`, `window_name`, `pct_per_hour` (this attempt's share of the window burn), `duration_min` (no projection; read by the scheduler's quota brake and `status`) |
 
 ## State Machines
 
@@ -203,16 +212,16 @@ stateDiagram-v2
     DEGRADED --> AUTH_ERROR: 401 / UNAUTHENTICATED
     AUTH_ERROR --> AVAILABLE: user re-auths AND probe ok
 
-    AVAILABLE --> DRAINING: aq drain <provider>
-    DEGRADED --> DRAINING: aq drain <provider>
+    AVAILABLE --> DRAINING: hiraishin drain <provider>
+    DEGRADED --> DRAINING: hiraishin drain <provider>
     DRAINING --> PAUSED: active_jobs == 0
-    DRAINING --> AVAILABLE: aq resume <provider>
+    DRAINING --> AVAILABLE: hiraishin resume <provider>
 
-    AVAILABLE --> PAUSED: aq pause <provider>
-    DEGRADED --> PAUSED: aq pause <provider>
-    EXHAUSTED --> PAUSED: aq pause <provider>
-    PAUSED --> AVAILABLE: aq resume <provider> (if quota > 0)
-    PAUSED --> EXHAUSTED: aq resume <provider> (if window still empty)
+    AVAILABLE --> PAUSED: hiraishin pause <provider>
+    DEGRADED --> PAUSED: hiraishin pause <provider>
+    EXHAUSTED --> PAUSED: hiraishin pause <provider>
+    PAUSED --> AVAILABLE: hiraishin resume <provider> (if quota > 0)
+    PAUSED --> EXHAUSTED: hiraishin resume <provider> (if window still empty)
 
     AVAILABLE --> UNAVAILABLE: binary missing / harness broken
     UNAVAILABLE --> AVAILABLE: doctor check passes
@@ -220,7 +229,7 @@ stateDiagram-v2
 
 State semantics:
 - `AVAILABLE`: eligible for new dispatches and failovers.
-- `DEGRADED`: still eligible (with optional penalty), approaching exhaustion or falling back to lower-confidence sensor.
+- `DEGRADED`: still eligible (with optional penalty), approaching exhaustion (`used_pct >= warn_used_pct`; the 6h EWMA burn-rate forecast shows in `status` but does not degrade), or falling back to lower-confidence sensor.
 - `DRAINING`: running jobs finish normally; no new jobs or failovers are assigned. Automatically settles into `PAUSED` once `active_jobs == 0`.
 - `PAUSED`: operator-suspended; ignored by scheduler regardless of quota.
 - `EXHAUSTED`: hard-blocked until `resets_at` passes and a lightweight check confirms recovery (or operator overrides).
@@ -230,13 +239,13 @@ State semantics:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> QUEUED: aq run / MCP dispatch
+    [*] --> QUEUED: hiraishin run / MCP dispatch
 
     QUEUED --> DISPATCHING: scheduler picks provider
     QUEUED --> WAITING_QUOTA: no eligible provider available
 
     WAITING_QUOTA --> DISPATCHING: provider window resets\nor operator unpauses/changes rule
-    WAITING_QUOTA --> CANCELLED: aq cancel
+    WAITING_QUOTA --> CANCELLED: hiraishin cancel
 
     DISPATCHING --> RUNNING: terminal spawned & slot locked
     DISPATCHING --> QUEUED: transient spawn error (retryable)
@@ -246,11 +255,11 @@ stateDiagram-v2
     RUNNING --> FAILING_OVER: watcher detects quota exhaustion\n(and never_switch == false)
     RUNNING --> WAITING_QUOTA: watcher detects quota exhaustion\n(and never_switch == true)
     RUNNING --> FAILED: non-quota crash exceeding retry cap
-    RUNNING --> CANCELLED: aq cancel
+    RUNNING --> CANCELLED: hiraishin cancel
 
     FAILING_OVER --> DISPATCHING: next allowed provider picked\n& resume prompt built
     FAILING_OVER --> WAITING_QUOTA: all allowed providers exhausted/paused
-    FAILING_OVER --> CANCELLED: aq cancel
+    FAILING_OVER --> CANCELLED: hiraishin cancel
 
     COMPLETED --> [*]
     FAILED --> [*]
@@ -264,7 +273,7 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     actor User as User / Orchestrator
-    participant CLI as aq CLI / MCP
+    participant CLI as hiraishin CLI / MCP
     participant Int as Integrations (graphify / qmd)
     participant Sched as Scheduler
     participant Ledger as SQLite Ledger
@@ -272,7 +281,7 @@ sequenceDiagram
     participant Term as Terminal Adapter (Orca/tmux/proc)
     participant Agent as Harness CLI
 
-    User->>CLI: aq run --role backend --worktree ../wt/feat --brief brief.md
+    User->>CLI: hiraishin run --role backend --worktree ../wt/feat --brief brief.md
     CLI->>Ledger: append job.queued
     opt graphify enabled
         CLI->>Int: size_task(worktree, brief)
@@ -289,7 +298,7 @@ sequenceDiagram
     Term->>Agent: exec kimi --prompt ...
     Term-->>Disp: terminal_handle
     Disp->>Ledger: append job.dispatched (state=RUNNING)
-    CLI-->>User: Dispatched job_01J9X4K2 on kimi-native (see: aq why job_01J9X4K2)
+    CLI-->>User: Dispatched job_01J9X4K2 on kimi-native (see: hiraishin why job_01J9X4K2)
 ```
 
 ### 2. Exhaustion Mid-Job & Worktree Failover
@@ -353,6 +362,6 @@ sequenceDiagram
         Timer->>Disp: ResumeInWorktree(waiting_job, Decision)
         Disp->>Ledger: append job.dispatched (state=RUNNING)
     else no waiting jobs
-        Note over Timer: kimi-native ready for next aq run
+        Note over Timer: kimi-native ready for next hiraishin run
     end
 ```

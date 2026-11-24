@@ -1,0 +1,28 @@
+hiraishin  profile balanced · 5 providers · 1 limit reached · 1 near limit · 1 paused
+ zai
+   5h      ███████████████████████████████████░░░░░  88%  ▁▁▁▁▂▂▂▃▃▃▄▄▄▅▅▅▆▆▆▇▇▇██  resets 1h12m
+   weekly  ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  41%                            resets 3d5h
+   ● glm-a   near limit     1/2 jobs
+   ● glm-b   available      0/2 jobs
+ kimi
+   5h      ████████████████████████████████████████ 100%                            resets 40m
+ › ● kimi    limit reached  0/2 jobs  cooldown for 40m
+     ↳ rate limit: weekly quota exhausted for this account, retry after the window resets at 15:40 UTC
+ claude
+   5h      █████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  23%  ▁▁▁▁▂▂▁▁▁▁▂▂▁▁▁▁▂▂▁▁▁▁▂▂  resets 3h10m  estimated
+   ● claude  available      2/3 jobs
+ agy
+   5h      ········································    ?                            estimated
+   ○ agy     paused         0/1 jobs
+
+ jobs  3 running · 1 waiting quota
+   v03-doctor     doctor                          running        claude    1m
+   v03-simulator  policy-simulator-replay-engine  waiting quota  -         1h35m
+   v03-tui        persist-all                     running        claude    12m
+                  golden-tests                    running        glm-a     3m
+
+ failovers
+   8m ago    golden-tests                    from kimi      limit_hit
+   50m ago   policy-simulator-replay-engine  from agy       auth_error
+ glm-b: PAUSED
+ ↑↓ select · p pause · d drain · r resume · tab profile · q quit

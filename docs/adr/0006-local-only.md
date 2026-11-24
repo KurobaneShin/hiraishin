@@ -9,7 +9,7 @@ Coding-agent orchestration touches proprietary repositories, briefs, credentials
 
 ## Decision
 
-`aq` runs 100% locally: configuration, SQLite ledger, logs, and the stdio MCP server stay on the local machine, and the only outbound network calls are optional read-only first-party usage probes explicitly enabled by the user.
+`hiraishin` runs 100% locally: configuration, SQLite ledger, logs, and the stdio MCP server stay on the local machine, and the only outbound network calls are optional read-only first-party usage probes explicitly enabled by the user.
 
 ## Consequences
 

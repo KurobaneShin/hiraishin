@@ -4,7 +4,7 @@ Surveyed on 2026-11-21 from public repositories, READMEs, and package metadata (
 
 ## Executive Verdict
 
-No single existing open-source project combines all five properties `aq` requires:
+No single existing open-source project combines all five properties `hiraishin` requires:
 1. **Perishable-first scheduling** across rolling 5h / weekly / daily subscription windows,
 2. **Mid-task cross-vendor failover** using the git worktree as the recovery checkpoint,
 3. **User-chosen, explainable, bounded-adaptive preferences** (`why` traces + hard policy gates),
@@ -55,8 +55,8 @@ Before writing v0.1 from scratch, run a 1-hour hands-on evaluation of [`agent-to
       }
     }
     ```
-- **How `aq` reuses it:** Because `aq` is a single static Go binary ([ADR 0002](adr/0002-go-single-binary.md)), it cannot import a TypeScript module in-process without bundling Node. We use a two-step reuse strategy:
-  1. **v0.1 fast path (opt-in subprocess adapter):** When `sensor.quota_axi_fallback = true` and `quota-axi` (or `node >= 22.19`) is present locally, `aq` shells out to `quota-axi --json` on the configured poll interval and normalizes its JSON into `sensor.quota_sampled` ledger events.
+- **How `hiraishin` reuses it:** Because `hiraishin` is a single static Go binary ([ADR 0002](adr/0002-go-single-binary.md)), it cannot import a TypeScript module in-process without bundling Node. We use a two-step reuse strategy:
+  1. **v0.1 fast path (opt-in subprocess adapter):** When `sensor.quota_axi_fallback = true` and `quota-axi` (or `node >= 22.19`) is present locally, `hiraishin` shells out to `quota-axi --json` on the configured poll interval and normalizes its JSON into `sensor.quota_sampled` ledger events.
   2. **v0.2 native Go sensors:** Port the MIT-licensed first-party endpoint probe specs for Claude, Kimi (`api.kimi.com/coding/v1/usages`), Z.AI (`api.z.ai/api/monitor/usage/quota/limit`), and Antigravity into native Go (preserving MIT attribution), removing the Node dependency completely.
 
 ### 2. `ai-dispatch` (`aid`) — Closest Orchestrator Neighbor
@@ -66,10 +66,25 @@ Before writing v0.1 from scratch, run a 1-hour hands-on evaluation of [`agent-to
 - **Gaps for our stack:** Does not explicitly model perishable-inventory scheduling (`burn-expiring-first` vs. `save-scarce`), does not support native Kimi CLI or `glm-claude`, lacks our bounded per-`(provider, role)` learning + `why` arithmetic, and lacks `ai-memory`/`qmd`/`graphify` failover enrichment.
 - **Action before coding v0.1:** Spend 1 hour testing `aid` locally on a dummy worktree to confirm its exact failover behavior and decide whether any shared concepts or PRs belong upstream.
 
+#### Hands-on result (2026-11-21, `aid` v11.14.1, source `63b6f32`)
+
+Setup: release binary (checksum verified) in a scratch repo under `/tmp`, isolated `AID_HOME`, two mock agents on `PATH`. Agent A (`oz`) edits a tracked file, creates an untracked file, prints `429 You've reached your 5-hour usage limit` and exits 1. Agent B (`codex`) records its cwd, argv, `git status` and `git log`. Command: `aid run oz "Add a feature" -w feat/x --cascade codex`.
+
+| Question | Observed |
+|---|---|
+| Uncommitted files kept? | Yes, but not as dirty files: `failure_salvage` makes a WIP commit (`wip: partial work salvage (task … failed)`) and writes `partial-work.md` in aid's task dir. |
+| Resume on another provider? | Yes, in the same worktree (`inherit_cascade_target`), as a new child task. |
+| Resume context for agent B? | No. Agent B receives the original prompt plus aid's boilerplate. No git status/diff, no reference to `partial-work.md`, no progress report. |
+| Limit classified as quota? | No for this message: the run failed as a generic `exit code 1`; `aid agent quota` still showed the agent as `UNKNOWN`, no hold recorded. Cascade fires on any failure listed in `--cascade`. |
+| Perishable-window scoring, user hard gates with a numeric `why` trace, pause/drain | Not present (aid ranks by advice, price, leaderboard and holds). |
+| Native `kimi`, `glm-claude`, tmux and Orca surfaces | Not present (Kimi only as an OpenCode model; no terminal adapters). |
+
+Decision: **build hiraishin**. aid is a large (≈190k lines Rust) general dispatcher whose core model (advice, price, cascade on failure) differs from ours (perishable quota, user gates, limit-specific failover with a resume prompt). Ideas worth borrowing: salvage summary of dirty state and inheriting the worktree on cascade. hiraishin keeps the dirty files uncommitted ([ADR 0004](adr/0004-worktree-as-checkpoint.md)) and puts the state in the resume prompt instead.
+
 ### 3. `hydra` and `tasuki` — PTY Output Failover Pattern
 
 - **Repositories:** [saadnvd1/hydra](https://github.com/saadnvd1/hydra) (Go, MIT), [0xkohe/tasuki](https://github.com/0xkohe/tasuki) (Go, MIT).
-- **What we reuse conceptually:** Both are written in Go and demonstrate clean PTY wrapping + regex limit matching + automatic session handoff across coding CLIs. `aq` adopts the same Go PTY/output-watcher ergonomics, extending it from one interactive terminal to N parallel worktree fronts with Orca/`tmux` adapters and proactive scheduling.
+- **What we reuse conceptually:** Both are written in Go and demonstrate clean PTY wrapping + regex limit matching + automatic session handoff across coding CLIs. `hiraishin` adopts the same Go PTY/output-watcher ergonomics, extending it from one interactive terminal to N parallel worktree fronts with Orca/`tmux` adapters and proactive scheduling.
 
 ### 4. `OmniRoute`, `CLIProxyAPI`, `Quotio` — Explicitly Out of Scope
 
@@ -79,4 +94,4 @@ Before writing v0.1 from scratch, run a 1-hour hands-on evaluation of [`agent-to
 ### 5. `ccusage`, `CodexBar`, `ClaudeMeter`, `AgentLimits`, `ModelDeck` — Reference Monitors
 
 - Display-only (mostly macOS SwiftUI menu-bar apps).
-- **What we reuse conceptually:** `ccusage`'s `~/.claude/projects/**/*.jsonl` token-field parsing conventions and `AgentLimits`'s countdown-to-reset UX pattern for `aq status` and the v0.3 TUI.
+- **What we reuse conceptually:** `ccusage`'s `~/.claude/projects/**/*.jsonl` token-field parsing conventions and `AgentLimits`'s countdown-to-reset UX pattern for `hiraishin status` and the v0.3 TUI.

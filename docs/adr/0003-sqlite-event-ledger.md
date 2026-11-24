@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-`aq` needs crash-safe state across daemon restarts, explainable scheduling audits (`aq why`), EWMA burn-rate forecasting, and deterministic replay for the v0.3 policy simulator.
+`hiraishin` needs crash-safe state across daemon restarts, explainable scheduling audits (`hiraishin why`), EWMA burn-rate forecasting, and deterministic replay for the v0.3 policy simulator.
 
 ## Decision
 

@@ -1,8 +1,8 @@
-# aq — Coding-Agent Quota Scheduler & Failover Orchestrator
+# hiraishin — Coding-Agent Quota Scheduler & Failover Orchestrator
 
-> **Status: Design phase.** This repository currently contains architecture specifications, provider research, preference schemas, ADRs, and a roadmap. No runnable binary exists yet. The working name `aq` is a placeholder until a final name is chosen ([naming shortlist](docs/naming.md)).
+> **Status: v0.3.** Ledger, usage sensors, scheduler with `why` traces, burn forecasting, bounded learning, runtime controls, process/tmux/orca dispatch, worktree failover, the MCP server, the `top` TUI, the policy simulator, `doctor`, backlog jobs and the systemd user service are implemented and covered by tests against the [v0.1–v0.3 acceptance criteria](docs/roadmap.md). The Codex and Gemini sensors are built from public sources and not yet checked against live accounts (`[unverified]` in [docs/providers](docs/providers/README.md)).
 
-`aq` tracks the rolling usage windows of your flat-rate coding-agent subscriptions (Claude Max via Claude Code, Kimi Code, Z.AI GLM Coding Plan, Google Antigravity via `agy`, OpenAI Codex CLI, and Gemini CLI), forecasts when each window empties or resets, dispatches work across them according to your rules, and fails over mid-task without losing uncommitted progress.
+`hiraishin` tracks the rolling usage windows of your flat-rate coding-agent subscriptions (Claude Max via Claude Code, Kimi Code, Z.AI GLM Coding Plan, Google Antigravity via `agy`, OpenAI Codex CLI, and Gemini CLI), forecasts when each window empties or resets, dispatches work across them according to your rules, and fails over mid-task without losing uncommitted progress.
 
 ## The Perishable-Quota Idea
 
@@ -13,38 +13,61 @@ Today, running several agents across multiple subscriptions creates two opposite
 1. **Mid-task stalls:** A worker hits its 5-hour or daily limit halfway through a feature and sits idle until a human notices, creates a new terminal, and manually re-prompts another agent.
 2. **Expiring capacity:** Meanwhile, a second subscription resets in 90 minutes with 60% of its window untouched.
 
-`aq` treats quota as perishable inventory bounded by quality rules you define. It routes work to expiring capacity first whenever that provider meets the task's quality bar, holds scarce high-tier quota for the roles that need it, and automatically relaunches a stalled worker in the same git worktree on the next allowed provider.
+`hiraishin` treats quota as perishable inventory bounded by quality rules you define. It routes work to expiring capacity first whenever that provider meets the task's quality bar, holds scarce high-tier quota for the roles that need it, and automatically relaunches a stalled worker in the same git worktree on the next allowed provider.
 
-## Intended CLI Quickstart
+## Quickstart
 
 ```bash
-# 1. Detect installed CLIs and logins, confirm plans and windows -> ~/.config/aq/config.toml
-aq init
+git clone https://github.com/KurobaneShin/hiraishin && cd hiraishin
+go install ./cmd/hiraishin            # Go 1.26+, CGO-free static binary
 
-# 2. Inspect live quota windows, burn rates, and time-to-reset across all providers
-aq status
+# 1. Detect installed CLIs (claude, kimi, opencode agents, agy) -> ~/.config/hiraishin/preferences.toml
+#    API keys are stored only as env var names (api_key_env), never as values.
+hiraishin init                        # --yes for non-interactive, --force to overwrite
 
-# 3. Pick a scheduling objective (switchable at any time)
-aq profile set burn-expiring-first
+# 2. Providers, states, window % with confidence, slots and time-to-reset (--json for scripts)
+hiraishin status
 
-# 4. Dispatch a task into a git worktree with automatic mid-task failover
-aq run --role backend --worktree ../wt/auth-fix --brief briefs/auth-fix.md
+# 3. Pick a scheduling objective (stored in the ledger, switchable at any time)
+hiraishin profile set burn-expiring-first
 
-# 5. Ask why the scheduler chose that provider (or rejected others)
-aq why job_01J9X4K2
+# 4. Queue a job and launch the chosen provider in a git worktree (process, tmux or orca adapter)
+hiraishin run --brief briefs/auth-fix/brief.md --worktree ../wt/auth-fix --role backend --adapter tmux
 
-# 6. Watch running jobs, detect limit errors, and fail over in-place
-aq watch --adapter orca
+# 5. Follow running jobs: on a limit hit, stop the agent, keep every dirty file and relaunch
+#    the next allowed provider in the same worktree with git status/diff + report.md
+hiraishin watch
+#    or keep it running as a systemd user service that starts with your session:
+#    copies this binary to ~/.local/bin/hiraishin (survives Go upgrades) and runs it with
+#    your current PATH; running it again restarts the service, running jobs keep running
+#    (--uninstall removes it). After a rebuild:
+#      GOBIN="$HOME/.local/bin" go install ./cmd/hiraishin && hiraishin watch --install
+hiraishin watch --install
+
+#    Backlog: run a chore only on quota forecast to go unused before its reset
+#    (waits until some provider would waste at least backlog_min_unused_pct)
+hiraishin run --brief briefs/flaky-tests/brief.md --worktree ../wt/flaky-tests --backlog
+hiraishin backlog                     # list them; hiraishin backlog rm <job_id> removes a waiting one
+
+# 6. Ask why the scheduler chose that provider and rejected the others (--json, --all)
+hiraishin why job_01J9X4K2
 
 # 7. Override at runtime without editing config
-aq pause kimi-native && aq pin job_01J9X4K2 claude-max
+hiraishin pause kimi-native        # also: drain, resume, prefer <p> --ttl 2h, pin <job> <p>, unpin, cancel <job>
+
+# 8. Live view: window bars, usage trend, reset countdowns, jobs per worktree, recent failovers.
+#    Keys: ↑↓ select a provider, p pause, d drain, r resume, tab next profile, q quit
+hiraishin top
 ```
+
+Exit codes: `0` success, `1` runtime error, `2` usage error (bad flag, argument or provider name).
+Paths: `HIRAISHIN_CONFIG` (default `$XDG_CONFIG_HOME/hiraishin/preferences.toml`) and `HIRAISHIN_DATA_DIR` (default `$XDG_DATA_HOME/hiraishin`, holding `ledger.db` and per-attempt logs).
 
 ## Core Principles
 
-- **No proxy.** Every model runs inside its own official CLI (or your configured harness such as OpenCode). `aq` never relays API traffic, scrapes session cookies, or shares subscription credentials across tools ([ADR 0001](docs/adr/0001-no-proxy.md)).
+- **No proxy.** Every model runs inside its own official CLI (or your configured harness such as OpenCode). `hiraishin` never relays API traffic, scrapes session cookies, or shares subscription credentials across tools ([ADR 0001](docs/adr/0001-no-proxy.md)).
 - **Local only.** Prompts, source code, logs, and credentials stay on your machine. The ledger is a local SQLite database; no telemetry or cloud sync exists ([ADR 0006](docs/adr/0006-local-only.md)).
-- **The worktree is the checkpoint.** Running work lives in a git worktree plus a progress report file. When a provider runs out mid-task, `aq` stops the stalled session and launches the next allowed provider in the exact same worktree with a structured resume prompt ([ADR 0004](docs/adr/0004-worktree-as-checkpoint.md)).
+- **The worktree is the checkpoint.** Running work lives in a git worktree plus a progress report file. When a provider runs out mid-task, `hiraishin` stops the stalled session and launches the next allowed provider in the exact same worktree with a structured resume prompt ([ADR 0004](docs/adr/0004-worktree-as-checkpoint.md)).
 - **The user decides.** Your inventory, quality floors, allow/deny lists, pins, and objective profile always win. Optional bounded learning can only reorder providers inside the list you explicitly allowed, can be frozen with one command, and every decision emits a readable `why` trace ([ADR 0005](docs/adr/0005-user-preferences-over-learned-scores.md)).
 - **Orchestrator-agnostic.** Works over plain OS processes, `tmux`, and Orca terminals, and exposes a local MCP server over stdio so higher-level orchestrating agents can query quota state and dispatch work.
 

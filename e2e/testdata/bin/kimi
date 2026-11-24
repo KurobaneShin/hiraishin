@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -u
+if [ -n "${MOCK_FIXTURE:-}" ]; then cat "$MOCK_FIXTURE"; exit 0; fi
+report_of() { printf '%s\n' "$1" | sed -n -e 's/^Keep \(.*\) current with progress.*/\1/p' -e 's/^Report: //p' | head -n 1; }
+prompt="$2"
+report="$(report_of "$prompt")"
+if [ -f .git/mock-kimi-limited ]; then
+  echo "- [x] kimi: finished after the window reset" >> "$report"
+  exit 0
+fi
+touch .git/mock-kimi-limited
+echo "- [x] kimi: wrote the save layer" >> "$report"
+printf '\nfunc Save() error { return nil }\n' >> app.go
+printf 'package app\n\nfunc Load() {}\n' > load.go
+echo '{"type":"assistant","message":"saving work"}'
+echo "429 You've reached your 5-hour usage limit" >&2
+exec sleep 60

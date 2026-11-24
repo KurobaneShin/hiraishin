@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KurobaneShin/hiraishin/docs/schemas/control.schema.json",
+  "title": "hiraishin pause, drain and pin JSON results",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "state"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "provider": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    }
+  }
+}

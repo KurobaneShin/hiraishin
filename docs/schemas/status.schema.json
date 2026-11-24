@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KurobaneShin/hiraishin/docs/schemas/status.schema.json",
+  "title": "hiraishin status --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "profile",
+    "watch_running",
+    "providers",
+    "jobs",
+    "backlog_jobs"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile": {
+      "type": "string"
+    },
+    "watch_running": {
+      "type": "boolean"
+    },
+    "jobs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "backlog_jobs": {
+      "description": "Active backlog jobs (run --backlog) per state; also counted in jobs",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "harness",
+          "state",
+          "active_jobs",
+          "max_concurrent",
+          "windows"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "harness": {
+            "type": "string"
+          },
+          "pool": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "AVAILABLE",
+              "DEGRADED",
+              "DRAINING",
+              "PAUSED",
+              "EXHAUSTED",
+              "AUTH_ERROR",
+              "UNAVAILABLE",
+              "DISABLED"
+            ]
+          },
+          "active_jobs": {
+            "type": "integer"
+          },
+          "max_concurrent": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "job_burn": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pct_per_hour", "duration_min", "samples"],
+              "properties": {
+                "pct_per_hour": {"type": "number"},
+                "duration_min": {"type": "number"},
+                "samples": {"type": "integer"}
+              }
+            }
+          },
+          "cooldown_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "kind",
+                "used_pct",
+                "resets_in_seconds",
+                "confidence"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "used_pct": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "resets_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "resets_in_seconds": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "confidence": {
+                  "type": "string"
+                },
+                "burn_ready_in_seconds": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "forecast": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "pct_per_hour",
+                    "time_to_empty_seconds",
+                    "time_to_reset_seconds",
+                    "perishable_waste_risk",
+                    "empties_before_reset"
+                  ],
+                  "properties": {
+                    "pct_per_hour": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "time_to_empty_seconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "time_to_reset_seconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "perishable_waste_risk": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "empties_before_reset": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

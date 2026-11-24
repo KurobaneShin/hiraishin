@@ -1,6 +1,6 @@
 # Provider & Harness Adapters
 
-Each file below specifies how `aq` launches, monitors, senses quota for, and fails over a specific coding-agent provider without proxying API traffic ([ADR 0001](../adr/0001-no-proxy.md)).
+Each file below specifies how `hiraishin` launches, monitors, senses quota for, and fails over a specific coding-agent provider without proxying API traffic ([ADR 0001](../adr/0001-no-proxy.md)).
 
 | Provider | File | Harnesses Covered | Quota Windows | Primary Sensor Tier |
 |---|---|---|---|---|

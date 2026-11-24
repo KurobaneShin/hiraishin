@@ -22,8 +22,8 @@ At 14:10 my workstation had 62 GB free on `C:`. Sixteen minutes later, at 14:26,
    - `loot-drops` hit GLM Coding Plan's limit -> manually reassigned to `kimi-worker`.
    - With 3 fronts now hammering Kimi simultaneously (`char-flow`, `persist-all`, `loot-drops`), Kimi hit its 5-hour limit (`429 You've reached your 5-hour usage limit`) across all three.
    - Manual failover of all three worktrees onto `agy` (`gemini-4-neon-medium`): `persist-all` merged PR #248 at 15:35; `loot-drops` opened PR #249 at 15:39.
-4. **What Belongs in `aq` vs. OS Resource Guards**
-   - Why `aq` focuses on quota scheduling, concurrency caps (`max_concurrent`), and automated worktree failover, while exposing `launch_prefix` hooks (`flock`, `mmo-slot`) so OS-level RAM/disk/GPU guards compose cleanly instead of being reimplemented poorly.
+4. **What Belongs in `hiraishin` vs. OS Resource Guards**
+   - Why `hiraishin` focuses on quota scheduling, concurrency caps (`max_concurrent`), and automated worktree failover, while exposing `launch_prefix` hooks (`flock`, `mmo-slot`) so OS-level RAM/disk/GPU guards compose cleanly instead of being reimplemented poorly.
 
 ## Figures & Data Needed
 

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -u
+if [ -n "${MOCK_FIXTURE:-}" ]; then cat "$MOCK_FIXTURE"; exit 0; fi
+report_of() { printf '%s\n' "$1" | sed -n -e 's/^Keep \(.*\) current with progress.*/\1/p' -e 's/^Report: //p' | head -n 1; }
+printf '%s\n' "${CLAUDE_CONFIG_DIR-unset}" >> .git/claude-accounts.txt
+if [ -n "${MOCK_CLAUDE_LIMITED_DIR:-}" ] && [ "${CLAUDE_CONFIG_DIR:-}" = "$MOCK_CLAUDE_LIMITED_DIR" ]; then
+  printf 'package app\n\nfunc Half() {}\n' > half.go
+  echo "Claude AI usage limit reached." >&2
+  exec sleep 60
+fi
+echo "- [x] claude: finished on ${CLAUDE_CONFIG_DIR-unset}" >> "$(report_of "$2")"
+echo '{"type":"result","is_error":false,"result":"done"}'
+exit 0

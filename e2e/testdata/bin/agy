@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -u
+if [ -n "${MOCK_FIXTURE:-}" ]; then cat "$MOCK_FIXTURE"; exit 0; fi
+if [ "${2:-}" = "/usage" ]; then
+  echo '{"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","buckets":[{"id":"gemini-5h","window":"5h","remaining_fraction":0.75,"reset_time":"2030-01-01T00:00:00Z"}]}]}}}'
+  exit 0
+fi
+report_of() { printf '%s\n' "$1" | sed -n -e 's/^Keep \(.*\) current with progress.*/\1/p' -e 's/^Report: //p' | head -n 1; }
+prompt="${@: -1}"
+printf '%s' "$prompt" > .git/agy-prompt.txt
+if [ -f .git/hang ]; then exec sleep 60; fi
+echo "- [x] agy: finished the brief" >> "$(report_of "$prompt")"
+exit 0

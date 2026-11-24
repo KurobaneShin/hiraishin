@@ -1,12 +1,12 @@
 # User Preferences, Scoring, and Bounded Learning
 
-`aq` follows one governing rule: **the user decides** ([ADR 0005](adr/0005-user-preferences-over-learned-scores.md)). Every routing decision starts from explicit user configuration, evaluates hard policy gates before any score is computed, and writes a human-readable `why` trace into the SQLite ledger. Optional learning is strictly bounded inside the provider list the user already approved, and can be frozen with a single command.
+`hiraishin` follows one governing rule: **the user decides** ([ADR 0005](adr/0005-user-preferences-over-learned-scores.md)). Every routing decision starts from explicit user configuration, evaluates hard policy gates before any score is computed, and writes a human-readable `why` trace into the SQLite ledger. Optional learning is strictly bounded inside the provider list the user already approved, and can be frozen with a single command.
 
 ## Configuration File Location
 
-- Default path: `${XDG_CONFIG_HOME:-~/.config}/aq/preferences.toml`
-- Project-local override (optional, checked into or beside a repo): `.aq.toml` (only task rules, profile override, and pins; never inventory or credentials)
-- Precedence: CLI/runtime flags (`--provider`, `aq pin`, `aq pause`) > `.aq.toml` > `~/.config/aq/preferences.toml`.
+- Default path: `${XDG_CONFIG_HOME:-~/.config}/hiraishin/preferences.toml`
+- Project-local override (optional, checked into or beside a repo): `.hiraishin.toml` (only task rules, profile override, and pins; never inventory or credentials)
+- Precedence: CLI/runtime flags (`--provider`, `hiraishin pin`, `hiraishin pause`) > `.hiraishin.toml` > `~/.config/hiraishin/preferences.toml`.
 
 ## Full TOML Schema (Commented)
 
@@ -18,7 +18,7 @@ schema_version = 1
 # Global defaults & active objective profile
 # ---------------------------------------------------------------------------
 [general]
-# Default terminal adapter when not passed to `aq run`: "process" | "tmux" | "orca"
+# Default terminal adapter when not passed to `hiraishin run`: "process" | "tmux" | "orca"
 default_terminal_adapter = "tmux"
 
 # Active objective profile:
@@ -35,9 +35,23 @@ warn_used_pct = 85.0
 reserve_used_pct = 98.0
 reserve_allow_failover = true
 
+# On a limit hit, wait for the same provider instead of failing over when its
+# reset falls within this many minutes of the agent stopping, then resume the
+# agent's own session (claude --resume, kimi --session, opencode --session,
+# agy --conversation). The default stays inside Claude Code's 1h prompt-cache
+# TTL (measured on 2026-11-21: every cache write in local transcripts, `claude -p`
+# included, was ephemeral_1h). Kimi Code and Z.AI publish no TTL. 0 turns it off.
+failover_wait_max_min = 50
+
 # Never automatically turn on pay-as-you-go / metered providers unless
 # explicitly enabled in both [general] and the provider's own entry.
 allow_metered_fallback = false
+
+# Backlog jobs (`hiraishin run --backlog`) run only on quota forecast to go
+# unused: some window resetting within backlog_horizon_hours must leave at least
+# backlog_min_unused_pct unused at its reset, after the burn of jobs already running.
+backlog_min_unused_pct = 10.0
+backlog_horizon_hours = 24.0
 
 # ---------------------------------------------------------------------------
 # Objective profile weights (used when active_profile = "custom" or to inspect
@@ -53,32 +67,35 @@ latency  = 0.10   # Preference for faster / lower-overhead harnesses
 # Bounded learning configuration
 # ---------------------------------------------------------------------------
 [learning]
-# Master switch. When false, learned deltas are ignored (0.0 everywhere).
+# Master switch. When false (the default when omitted), learned deltas are
+# ignored (0.0 everywhere); outcomes are still recorded.
 enabled = true
 
-# Freeze prevents new outcome records from changing bounded_delta while still
-# recording outcomes to the ledger for inspection.
+# Same as `hiraishin learn freeze`: outcomes are still logged to the ledger,
+# but learning_stats and every learned delta stay as they are.
 frozen = false
 
-# Minimum completed jobs for a (provider, role) pair before learning applies.
+# Outcomes a (provider, role) pair needs before its delta applies. Default 5.
 min_samples = 5
 
-# Maximum score adjustment (in normalized [0.0, 1.0] score space) that learning
-# may add or subtract. Learning can NEVER violate hard gates (deny list,
-# allowed list, min_quality_tier, pin, concurrency cap, metered opt-in).
+# Largest score adjustment (normalized score space) learning may add or
+# subtract, 0 < max_delta <= 0.5. Default 0.12. Learning can NEVER violate
+# hard gates (deny list, allowed list, min_quality_tier, pin, concurrency cap,
+# metered opt-in).
 max_delta = 0.12
 
-# Exponential moving average smoothing factor for recent outcomes (0.0..1.0).
+# EWMA smoothing factor for new outcomes, 0 < ewma_alpha <= 1. Default 0.25.
 ewma_alpha = 0.25
 
 # Relative weights inside the raw outcome quality signal (sum to 1.0).
+# Defaults below apply only when all four are omitted.
 weight_completion     = 0.45   # Completed without human takeover
 weight_review_rounds  = 0.25   # Fewer review/fix rounds before merge
 weight_build_failures = 0.20   # Fewer build/gate failures
-weight_duration       = 0.10   # Faster completion relative to role median
+weight_duration       = 0.10   # Faster completion relative to the role average
 
 # ---------------------------------------------------------------------------
-# Provider inventory (`aq init` detects installed CLIs/logins; user confirms)
+# Provider inventory (`hiraishin init` detects installed CLIs/logins; user confirms)
 # ---------------------------------------------------------------------------
 [providers.<provider_id>]
 enabled = true
@@ -111,11 +128,27 @@ scarcity_tier = 5
 # User-assigned speed/responsiveness rating (1..5, higher = faster).
 speed_tier = 3
 
-# Hard cap on concurrent jobs launched by `aq` on this provider.
+# Optional hard cap on concurrent jobs launched by `hiraishin` on this provider.
+# 0 or unset: no fixed cap; the quota brake (Stage 1, rule 8) limits parallel jobs instead.
 max_concurrent = 4
 
 # Optional command wrapper (e.g. "flock ~/.agy.lock" for single-flight CLIs).
 launch_prefix = []
+
+# Name of the environment variable that holds an API key (glm-claude needs it;
+# endpoint sensors use it). Only the variable name is stored, never the key.
+api_key_env = ""
+
+# claude-code / glm-claude only: the Claude Code config dir of this account
+# (exported as CLAUDE_CONFIG_DIR; absolute or ~/). Empty means the default
+# ~/.claude, and an inherited CLAUDE_CONFIG_DIR is unset. Give each account
+# its own provider and config_dir to fail over between accounts; two providers
+# on the same config_dir must share a shared_quota_pool.
+# `hiraishin init --claude-config-dir '<path or glob>'` adds one provider per
+# account; dirs whose .claude.json names an account already found are skipped.
+# The local-log sensor skips a config_dir whose projects/ is a symlink, since
+# those logs may belong to another account.
+config_dir = ""
 
 # Quota windows. Auto-detected when a sensor supports it; typed values act as
 # fallback when a sensor is offline or unavailable.
@@ -123,17 +156,19 @@ launch_prefix = []
 name = "5h"                    # Identifier in ledger & status table
 kind = "rolling"               # "rolling" | "fixed_reset" | "credit_pool" | "metered"
 duration_hours = 5             # Used for rolling window reset estimates
-# fixed_reset_cron = "0 0 * * *"   # Optional for daily/weekly fixed resets
+# fixed_reset_cron = "0 0 * * *"   # Optional for daily/weekly fixed resets: "M H * * DOW", DOW 0-6 or *
 # fixed_reset_tz   = "America/Los_Angeles"
 
 # Sensor chain order for this provider (first working tier wins).
 [providers.<provider_id>.sensor]
 mode = "auto"                  # "auto" | "endpoint" | "local_logs" | "output_regex" | "none"
+                               # auto: the usage endpoint when the provider has one, else local logs
+                               # (an endpoint that fails or has no valid token leaves the last sample)
 poll_interval_sec = 120        # Minimum poll interval (respect vendor rate limits)
 quota_axi_fallback = false     # Allow calling `quota-axi --json` as a sensor probe
 
 # ---------------------------------------------------------------------------
-# Task rules: keyed by role name (`aq run --role <role>`)
+# Task rules: keyed by role name (`hiraishin run --role <role>`)
 # ---------------------------------------------------------------------------
 [roles.<role_name>]
 # Ordered list of allowed providers. Hard gate: providers not listed here are
@@ -166,8 +201,8 @@ resume_prompt_template = ""
 # ---------------------------------------------------------------------------
 [integrations.ai_memory]
 enabled = false
-transport = "http"             # "http" | "stdio"
-url = "http://127.0.0.1:49375/mcp"
+transport = "http"             # only "http" is supported
+url = "http://127.0.0.1:49374/mcp"
 record_outcomes = true         # Write job outcome summaries as episodic pages
 
 [integrations.qmd]
@@ -213,6 +248,7 @@ quality_tier = 5
 scarcity_tier = 4
 speed_tier = 3
 max_concurrent = 2
+shared_quota_pool = "claude-max-account"
 
 [[providers.claude-opus.windows]]
 name = "5h"
@@ -471,6 +507,7 @@ duration_hours = 168
 enabled = true
 harness = "glm-claude"
 model = "glm-5.3"
+api_key_env = "ZAI_API_KEY"
 cost_class = "subscription"
 quality_tier = 3
 scarcity_tier = 2
@@ -515,7 +552,7 @@ min_quality_tier = 2
 [integrations.ai_memory]
 enabled = true
 transport = "http"
-url = "http://127.0.0.1:49375/mcp"
+url = "http://127.0.0.1:49374/mcp"
 record_outcomes = true
 
 [integrations.qmd]
@@ -543,8 +580,10 @@ A candidate provider $p$ is immediately rejected (and its rejection reason logge
 4. If the job or role has a `pin_provider`, `p.id == pin_provider`
 5. `p.id` is in `role.allowed_providers` and NOT in `role.deny_providers`
 6. `p.quality_tier >= effective_min_quality_tier` (where `effective_min_quality_tier` may be raised by `graphify` sizing if enabled)
-7. `p.active_jobs < p.max_concurrent`
-8. Every window of `p` (and its `shared_quota_pool`, if set) has `used_pct < reserve_used_pct` (or `< 100.0` during failover when `reserve_allow_failover = true`)
+7. `p.active_jobs < p.max_concurrent` when `max_concurrent > 0`
+8. Quota brake, for every window of `p` with a measured burn per job: `used_pct + rate × horizon < reserve_used_pct`, where `rate` is the burn per job of `p` plus the burn per job of every job already running on the pool (each at its own provider's estimate, or at `p`'s when that provider has none), and `horizon` is `min(time to reset, typical job duration of p)`. The burn per job is the duration-weighted mean of the newest 20 `quota.job_burn` measurements for that provider and window (a median would read 0 on windows reported in whole percent, where most short jobs see no step), and the typical duration is their median; the watcher records one per window when an attempt ends, splitting each sample interval equally between the jobs running on the pool at that time. Usage outside hiraishin on the same account counts as job usage, so the estimate errs high. Without a measurement there is no brake.
+9. Every window of `p` (and its `shared_quota_pool`, if set) has `used_pct < reserve_used_pct` (or `< 100.0` during failover when `reserve_allow_failover = true`; the quota brake uses the same limit)
+10. Backlog jobs only: some window of `p` with a burn forecast that resets within `backlog_horizon_hours` has `(100 - used_pct) × perishable_waste_risk - running burn ≥ backlog_min_unused_pct`. The waste risk is the one `status` shows as "left unused at reset" (already capped by longer windows), and the running burn is, per pool member, `active jobs × burn per job × min(time to reset, typical job duration)`. It double-counts jobs whose burn the forecast already sees, so a backlog job errs toward waiting. A backlog job keeps the rule on failover. Without a forecast (the first 30 minutes of a window, or no watch running) it waits.
 
 If zero candidates pass Stage 1, the job transitions to `WAITING_QUOTA` and records the earliest `resets_at` among blocked allowed providers.
 
@@ -559,6 +598,10 @@ For each surviving candidate $p$, four features are normalized to $[0.0, 1.0]$:
    $$\text{rem}_w = \frac{100 - \text{used\_pct}_w}{100}, \qquad \text{time\_frac}_w = \text{clamp}\left(\frac{\text{time\_to\_reset}_w}{\text{duration}_w}, 0.05, 1.0\right)$$
    $$E_p = \text{clamp}\left(\text{rem}_w \cdot (1 - \text{time\_frac}_w) \cdot 1.6,\; 0.0,\; 1.0\right)$$
    Interpretation: a window with 70% remaining and only 15% of its time left before reset scores near $1.0$ (high waste risk if unused); a nearly empty window or a freshly reset window scores low. If `used_pct` or `resets_at` is unknown, $E_p = 0.50$ (neutral) and `confidence` is flagged in `why`.
+
+   A longer window that outlasts $w$ caps $\text{rem}_w$ at the room it leaves beyond its own pace, converted with the two burn rates:
+   $$\text{room}_w = \text{spare}_o \cdot \frac{\text{burn}_w}{\text{burn}_o}, \qquad \text{rem}_w = \frac{\min(100 - \text{used\_pct}_w,\ \text{room}_w)}{100}$$
+   $\text{spare}_o$ is what $o$ leaves unused at its reset at the current burn. $\text{room}_w = 0$ when $o$ is at 100% or runs out before its reset: the short window cannot be spent, so it is not urgent. Without a burn forecast for both windows the cap does not apply. `why` shows "<window> runs out first" or "capped by the room <window> leaves" and the decision row records `expiry_limited_by`. The forecast is read outside the ledger write lock.
 3. **Scarcity Preservation ($S_p$):**
    Rewards using less scarce pools and penalizes burning pools whose weekly cap is already tight:
    $$S_{\text{base}} = 1 - \frac{\text{scarcity\_tier}_p - 1}{4}, \qquad S_{\text{weekly}} = \frac{100 - \text{used\_pct}_{\text{weekly}}}{100}$$
@@ -587,34 +630,45 @@ Where:
 
 ## Bounded Learning and Freezing
 
-When a job finishes (or fails / requires human rescue), an outcome record is appended (`learning.outcome_recorded`):
+Learning keeps one row per `(provider, role)` in the `learning_stats` table. The role is the job's role name. Two sources append a `learning.outcome_recorded` event:
 
-- `success` $\in \{0, 1\}$ (completed without manual takeover)
+- every `job.completed` seen by `hiraishin watch` (success, wall minutes of the last attempt);
+- `hiraishin outcome record <provider> <role> [--failed] [--review-rounds N] [--build-failures N] [--duration-min M]`, for what only you know (review rounds, build failures, a human takeover).
+
+Each outcome carries:
+
+- `success` $\in \{0, 1\}$ (completed without manual takeover; `--failed` sets 0)
 - `review_rounds` $\ge 0$ (PR review or fix cycles)
 - `build_failures` $\ge 0$ (build or gate failures)
-- `duration_min` $> 0$ (wall time relative to the role's rolling median $M_r$)
+- `duration_min` $\ge 0$ (wall time; `0` means unknown and scores neutral)
 
-For each outcome, a raw quality score $y \in [0, 1]$ is computed:
+For each outcome, a raw quality score $y$ is computed with the `weight_*` keys (defaults shown):
 
 $$y = 0.45 \cdot \text{success} + 0.25 \cdot \frac{1}{1 + \text{review\_rounds}} + 0.20 \cdot \frac{1}{1 + \text{build\_failures}} + 0.10 \cdot \text{clamp}\left(\frac{M_r}{\text{duration\_min}}, 0.2, 1.0\right)$$
 
-The per-`(provider, role)` EWMA $\hat{y}_{p,r}$ updates as:
+$M_r$ is the mean of the EWMA durations of every provider tried for role $r$. The duration term is `1.0` when the duration or $M_r$ is unknown. The event stores $y$ and `ewma_alpha`, so replaying the ledger gives the same stats.
+
+The per-`(provider, role)` EWMA $\hat{y}_{p,r}$ starts at the first $y$ and then updates as:
 
 $$\hat{y}_{p,r} \leftarrow (1 - \alpha)\,\hat{y}_{p,r} + \alpha\,y$$
 
-Compared against the role's baseline average $\bar{y}_r$ across all providers tried for role $r$, the bounded delta is:
+At each decision, the delta is computed against the role's baseline $\bar{y}_r$, the mean $\hat{y}$ of every provider tried for role $r$:
 
 $$\Delta_{\text{learn}}(p, r) = \text{clamp}\left((\hat{y}_{p,r} - \bar{y}_r) \cdot \text{max\_delta} \cdot 2,\; -\text{max\_delta},\; +\text{max\_delta}\right)$$
 
+The scheduler clamps the delta to `±max_delta` a second time when it adds it to the score.
+
 ### Guardrails
 
-- **Cannot break a rule:** Learning runs only in Stage 2 after Stage 1 hard gates. It can never enable a denied provider, bypass `min_quality_tier`, override a pin, or turn on a metered API.
-- **Cold-start protection:** $\Delta_{\text{learn}} = 0$ until `samples >= min_samples` (default `5`).
-- **One-command freeze:** `aq learn freeze` (or `aq learn freeze --provider kimi-native --role gameplay`) sets `frozen = 1`. Outcomes continue to be logged for visibility, while `bounded_delta` stays locked at its current value. `aq learn reset` zeroes `bounded_delta` back to `0.0`.
+- **Cannot break a rule:** Learning runs only in Stage 2 after Stage 1 hard gates. It can never enable a denied provider, bypass `min_quality_tier`, override a pin, fill a full slot, or turn on a metered API. Property-based tests over thousands of random configs check this.
+- **Cold-start protection:** $\Delta_{\text{learn}} = 0$ until `samples >= min_samples` (default `5`). A provider alone in a role is its own baseline, so its delta is `0`.
+- **One-command freeze:** `hiraishin learn freeze` (or `[learning] frozen = true`) stops outcomes from changing `learning_stats`, so every delta and score stays fixed from the next decision on. Outcomes are still appended to the ledger with `frozen: true`. Freeze is global. `hiraishin learn unfreeze` lets new outcomes count again; outcomes logged while frozen are not replayed.
+- **Reset:** `hiraishin learn reset` deletes every learned stat. All deltas return to `0.0` until each pair has `min_samples` new outcomes.
+- **Inspect:** `hiraishin learn status` prints the switches and, per role and provider, samples, completed count, $\hat{y}$ and the delta the scheduler adds now. `hiraishin why` shows the same delta as `learned` in each candidate's bonus line.
 
 ## The `why` Output Format
 
-Every decision is stored in the `decisions` table and inspectable with `aq why <job_id>` (or `aq why <decision_id>`, `--json` for scripts/MCP):
+Every decision is stored in the `decisions` table and inspectable with `hiraishin why <job_id>` (or `hiraishin why <decision_id>`, `--json` for scripts/MCP):
 
 ```text
 Decision: dec_01J9X4K2M8 (initial_dispatch)
@@ -641,15 +695,16 @@ burn-expiring-first, outweighing claude-sonnet's higher learned score (+0.059).
 
 ## Runtime Commands
 
-All runtime overrides write an event to the ledger and take effect immediately without restarting `aq watch`:
+All runtime overrides write an event to the ledger and take effect immediately without restarting `hiraishin watch`:
 
 | Command | Effect | Scope / Persistence |
 |---|---|---|
-| `aq profile set <name>` | Switches `active_profile` (`quality-first`, `burn-expiring-first`, `save-scarce`, `balanced`, `custom`) | Persists in runtime state until changed |
-| `aq prefer <provider> [--role <role>] [--ttl 2h]` | Temporarily boosts `<provider>` to first position in `allowed_providers` (adds `+0.15` preference bonus while still obeying hard gates) | Optional TTL; default until cleared |
-| `aq pin <job_id> <provider>` | Pins a job to `<provider>` and sets `never_switch = true` | Job lifetime (or `aq unpin <job_id>`) |
-| `aq pause <provider> [--reason "..."]` | Transitions provider to `PAUSED`; no new dispatches or failovers | Until `aq resume <provider>` |
-| `aq drain <provider> [--reason "..."]` | Transitions provider to `DRAINING`; running jobs finish, then transitions to `PAUSED` | Until `aq resume <provider>` |
-| `aq resume <provider>` | Returns a `PAUSED` or `DRAINING` provider to `AVAILABLE` (or `EXHAUSTED` if window is still empty) | Immediate |
-| `aq why <job_id \| decision_id> [--all] [--json]` | Prints the full Stage 1 & Stage 2 trace for the latest (or all) scheduling decisions | Read-only |
-| `aq learn status \| freeze \| unfreeze \| reset` | Inspects per-(provider, role) EWMA stats, freezes updates, or resets deltas to `0.0` | Global or `--provider` + `--role` |
+| `hiraishin profile set <name>` | Switches `active_profile` (`quality-first`, `burn-expiring-first`, `save-scarce`, `balanced`, `custom`) | Persists in runtime state until changed |
+| `hiraishin prefer <provider> [--role <role>] [--ttl 2h]` | Temporarily boosts `<provider>` to first position in `allowed_providers` (adds `+0.15` preference bonus while still obeying hard gates) | Optional TTL; default until cleared |
+| `hiraishin pin <job_id> <provider>` | Pins a job to `<provider>` and sets `never_switch = true` | Job lifetime (or `hiraishin unpin <job_id>`) |
+| `hiraishin pause <provider> [--reason "..."]` | Transitions provider to `PAUSED`; no new dispatches or failovers | Until `hiraishin resume <provider>` |
+| `hiraishin drain <provider> [--reason "..."]` | Transitions provider to `DRAINING`; running jobs finish, then transitions to `PAUSED` | Until `hiraishin resume <provider>` |
+| `hiraishin resume <provider>` | Returns a `PAUSED` or `DRAINING` provider to `AVAILABLE` (or `EXHAUSTED` if window is still empty) | Immediate |
+| `hiraishin why <job_id \| decision_id> [--all] [--json]` | Prints the full Stage 1 & Stage 2 trace for the latest (or all) scheduling decisions | Read-only |
+| `hiraishin outcome record <provider> <role> [--failed] [--review-rounds N] [--build-failures N] [--duration-min M]` | Appends one outcome for learning (under `hiraishin watch`, `job.completed` records a success and `job.failed` a failure automatically) | Ignored by stats while frozen |
+| `hiraishin learn status \| freeze \| unfreeze \| reset` | Inspects per-(provider, role) EWMA stats and current deltas, freezes or unfreezes updates, or deletes all stats (deltas back to `0.0`) | Global |

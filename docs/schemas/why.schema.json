@@ -1,0 +1,367 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KurobaneShin/hiraishin/docs/schemas/why.schema.json",
+  "title": "hiraishin why --json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "job",
+    "decisions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "role",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/decision"
+      }
+    }
+  },
+  "$defs": {
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "decision_id",
+        "job_id",
+        "trigger",
+        "role",
+        "min_quality_tier",
+        "profile",
+        "weights",
+        "chosen_provider",
+        "candidates",
+        "summary",
+        "blocked_providers",
+        "created_at"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "decision_id": {
+          "type": "string",
+          "pattern": "^dec_"
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "trigger": {
+          "enum": [
+            "initial_dispatch",
+            "failover",
+            "retry_after_reset",
+            "dry_run"
+          ]
+        },
+        "role": {
+          "type": "string"
+        },
+        "min_quality_tier": {
+          "type": "integer"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "weights": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "quality",
+            "expiry",
+            "scarcity",
+            "latency"
+          ],
+          "properties": {
+            "quality": {
+              "type": "number"
+            },
+            "expiry": {
+              "type": "number"
+            },
+            "scarcity": {
+              "type": "number"
+            },
+            "latency": {
+              "type": "number"
+            }
+          }
+        },
+        "chosen_provider": {
+          "type": "string"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        },
+        "summary": {
+          "type": "string"
+        },
+        "earliest_reset_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "blocked_providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "full_providers": {
+          "description": "Providers rejected only because every slot is taken; the job waits for one of them to finish a job.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "status",
+        "rejections",
+        "state",
+        "features",
+        "weighted",
+        "order_bonus",
+        "prefer_bonus",
+        "degraded_penalty",
+        "learn_delta",
+        "score",
+        "expiry_neutral",
+        "windows",
+        "active_jobs",
+        "max_concurrent"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "selected",
+            "eligible",
+            "rejected"
+          ]
+        },
+        "rejections": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "features": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "quality",
+            "expiry",
+            "scarcity",
+            "latency"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "quality": {
+              "type": "number"
+            },
+            "expiry": {
+              "type": "number"
+            },
+            "scarcity": {
+              "type": "number"
+            },
+            "latency": {
+              "type": "number"
+            }
+          }
+        },
+        "weighted": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "quality",
+            "expiry",
+            "scarcity",
+            "latency"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "quality": {
+              "type": "number"
+            },
+            "expiry": {
+              "type": "number"
+            },
+            "scarcity": {
+              "type": "number"
+            },
+            "latency": {
+              "type": "number"
+            }
+          }
+        },
+        "order_bonus": {
+          "type": "number"
+        },
+        "prefer_bonus": {
+          "type": "number"
+        },
+        "degraded_penalty": {
+          "type": "number"
+        },
+        "learn_delta": {
+          "type": "number"
+        },
+        "score": {
+          "type": "number"
+        },
+        "expiry_neutral": {
+          "type": "boolean"
+        },
+        "expiry_limited_by": {
+          "type": "string"
+        },
+        "windows": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/window"
+          }
+        },
+        "active_jobs": {
+          "type": "integer"
+        },
+        "max_concurrent": {
+          "type": "integer"
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "duration_hours",
+        "used_pct",
+        "confidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "duration_hours": {
+          "type": "number"
+        },
+        "used_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "resets_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "",
+            "exact",
+            "estimated",
+            "inferred"
+          ]
+        },
+        "forecast": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pct_per_hour",
+            "time_to_empty_seconds",
+            "time_to_reset_seconds",
+            "perishable_waste_risk",
+            "empties_before_reset"
+          ],
+          "properties": {
+            "pct_per_hour": {
+              "type": "number",
+              "minimum": 0
+            },
+            "time_to_empty_seconds": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "time_to_reset_seconds": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "perishable_waste_risk": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "empties_before_reset": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

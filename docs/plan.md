@@ -1,6 +1,6 @@
-# agent-quota (working name): plan
+# hiraishin: plan
 
-Status: design, nothing built. Started 2026-11-21 from the mmorpg orchestration (12 fronts on Claude, Kimi, GLM and Gemini Neon; three quota stalls and a full disk in one afternoon).
+Status: design done; v0.1 in build. Started 2026-11-21 from the mmorpg orchestration (12 fronts on Claude, Kimi, GLM and Gemini Neon; three quota stalls and a full disk in one afternoon).
 
 ## Problem
 
@@ -111,6 +111,7 @@ The user likes anime/manga references. Shortlist and availability checks in [doc
 
 ## Log
 
+- 2026-11-21: pre-v0.1 gate done. Hands-on with `aid` v11.14.1: fallback keeps dirty files only as a WIP commit and relaunches in the same worktree, but with no resume context and no limit classification for the Kimi 429; no perishable scoring, native Kimi, `glm-claude`, tmux or Orca. Decision: build, not contribute (details in [prior-art.md](prior-art.md)).
 - 2026-11-21: completed full design documentation pack (README, architecture, preferences, 6 provider specs, integrations, prior art, ADRs 0001–0006, 6 blog outlines, naming shortlist, roadmap) and linked every document from `plan.md`.
 - 2026-11-21: added native Kimi/GLM harnesses, ai-memory/qmd/graphify integrations and anime naming; docs front aq-docs started (documentation only).
 - 2026-11-21: survey of prior art; design and preference model drafted.

@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-11-21T15:00:00.000Z",
+  "schemaVersion": 5,
+  "providers": [
+    {"provider": "claude", "windows": [
+      {"id": "five_hour", "kind": "session", "percentUsed": 40, "resetsAt": "2026-11-21T19:00:00.000Z"},
+      {"id": "weekly", "kind": "weekly", "percentUsed": 62, "resetsAt": "2026-11-24T00:00:00.000Z"}
+    ]},
+    {"provider": "kimi", "windows": [{"id": "five_hour", "kind": "session", "percentUsed": 24}]}
+  ]
+}

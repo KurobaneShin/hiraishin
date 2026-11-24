@@ -5,7 +5,7 @@
 
 ## Hook
 
-Scheduling heuristics sound convincing on a whiteboard until they meet real bursty workloads. Because `aq` stores every sensor sample, job arrival, burn rate, and reset timestamp in an append-only SQLite event ledger, we can replay an entire 12-hour workday offline in under a second and measure what each policy actually saves.
+Scheduling heuristics sound convincing on a whiteboard until they meet real bursty workloads. Because `hiraishin` stores every sensor sample, job arrival, burn rate, and reset timestamp in an append-only SQLite event ledger, we can replay an entire 12-hour workday offline in under a second and measure what each policy actually saves.
 
 ## Sections
 
@@ -32,3 +32,4 @@ Scheduling heuristics sound convincing on a whiteboard until they meet real burs
 - **Figure 1 (Grouped Bar Chart — v0.3 output):** Comparison of the 5 policies on (a) stall minutes, (b) expired unused 5h quota %, (c) failover count, and (d) remaining weekly frontier quota.
 - **Figure 2 (Sensitivity Curve — v0.3 output):** Failover count vs. `reserve_used_pct` (`85%`, `90%`, `95%`, `98%`, `100%`).
 - **Dataset:** Recorded 1-day and 5-day SQLite ledgers from real multi-front `mmorpg` sessions (starting with a reconstructed trace of the 2026-11-21 12-front / 4-provider / 3-stall afternoon).
+- **Reproducible fixture:** [Anonymized afternoon comparison](../simulator-2026-11-21.md) contains the checked-in ledger, policy paths, command, and expected table.
