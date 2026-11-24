@@ -33,6 +33,7 @@ type mcpRunInput struct {
 	Adapter     string `json:"adapter"`
 	Provider    string `json:"provider"`
 	NeverSwitch bool   `json:"never_switch"`
+	Backlog     bool   `json:"backlog"`
 	NoSensors   bool   `json:"no_sensors"`
 }
 
@@ -53,6 +54,7 @@ func mcpCmd(a *app) *cobra.Command {
 		Args:  args(0, ""),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			server := mcpserver.New(mcpserver.Handlers{
+				Version: version(),
 				Status: func(ctx context.Context, raw json.RawMessage) (any, error) {
 					var in mcpStatusInput
 					if err := decodeMCPInput(raw, &in); err != nil {
@@ -112,7 +114,7 @@ func decodeMCPRunInput(raw json.RawMessage) (mcpRunInput, error) {
 
 func mcpRunOpts(in mcpRunInput) runOpts {
 	return runOpts{role: in.Role, worktree: in.Worktree, brief: in.Brief, name: in.Name, report: in.Report,
-		adapter: in.Adapter, provider: in.Provider, neverSwitch: in.NeverSwitch, noSensors: in.NoSensors}
+		adapter: in.Adapter, provider: in.Provider, neverSwitch: in.NeverSwitch, backlog: in.Backlog, noSensors: in.NoSensors}
 }
 
 func mcpProviderStateHandler(a *app, verb string) mcpserver.Handler {

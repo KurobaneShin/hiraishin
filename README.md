@@ -1,6 +1,6 @@
 # hiraishin — Coding-Agent Quota Scheduler & Failover Orchestrator
 
-> **Status: v0.1.** Ledger, sensors, scheduler with `why` traces, runtime controls, process/tmux/orca dispatch and worktree failover are implemented and covered by an end-to-end test against the [v0.1 acceptance criteria](docs/roadmap.md). Codex, Gemini, forecasting, learning and the MCP server are [v0.2](docs/roadmap.md).
+> **Status: v0.3.** Ledger, usage sensors, scheduler with `why` traces, burn forecasting, bounded learning, runtime controls, process/tmux/orca dispatch, worktree failover, the MCP server, the `top` TUI, the policy simulator, `doctor`, backlog jobs and the systemd user service are implemented and covered by tests against the [v0.1–v0.3 acceptance criteria](docs/roadmap.md). The Codex and Gemini sensors are built from public sources and not yet checked against live accounts (`[unverified]` in [docs/providers](docs/providers/README.md)).
 
 `hiraishin` tracks the rolling usage windows of your flat-rate coding-agent subscriptions (Claude Max via Claude Code, Kimi Code, Z.AI GLM Coding Plan, Google Antigravity via `agy`, OpenAI Codex CLI, and Gemini CLI), forecasts when each window empties or resets, dispatches work across them according to your rules, and fails over mid-task without losing uncommitted progress.
 
@@ -37,9 +37,17 @@ hiraishin run --brief briefs/auth-fix/brief.md --worktree ../wt/auth-fix --role 
 # 5. Follow running jobs: on a limit hit, stop the agent, keep every dirty file and relaunch
 #    the next allowed provider in the same worktree with git status/diff + report.md
 hiraishin watch
-#    or keep it running as a systemd user service that starts with your session
-#    (uses this binary and your current PATH; --uninstall removes it)
+#    or keep it running as a systemd user service that starts with your session:
+#    copies this binary to ~/.local/bin/hiraishin (survives Go upgrades) and runs it with
+#    your current PATH; running it again restarts the service, running jobs keep running
+#    (--uninstall removes it). After a rebuild:
+#      GOBIN="$HOME/.local/bin" go install ./cmd/hiraishin && hiraishin watch --install
 hiraishin watch --install
+
+#    Backlog: run a chore only on quota forecast to go unused before its reset
+#    (waits until some provider would waste at least backlog_min_unused_pct)
+hiraishin run --brief briefs/flaky-tests/brief.md --worktree ../wt/flaky-tests --backlog
+hiraishin backlog                     # list them; hiraishin backlog rm <job_id> removes a waiting one
 
 # 6. Ask why the scheduler chose that provider and rejected the others (--json, --all)
 hiraishin why job_01J9X4K2

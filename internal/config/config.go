@@ -36,6 +36,8 @@ type General struct {
 	ReserveAllowFailover   *bool   `toml:"reserve_allow_failover,omitempty"`
 	AllowMeteredFallback   bool    `toml:"allow_metered_fallback"`
 	FailoverWaitMaxMin     *int    `toml:"failover_wait_max_min,omitempty"`
+	BacklogMinUnusedPct    float64 `toml:"backlog_min_unused_pct,omitempty"`
+	BacklogHorizonHours    float64 `toml:"backlog_horizon_hours,omitempty"`
 }
 
 type Weights struct {
@@ -255,6 +257,12 @@ func (c *Config) applyDefaults() {
 	if c.General.ReserveUsedPct == 0 {
 		c.General.ReserveUsedPct = 98
 	}
+	if c.General.BacklogMinUnusedPct == 0 {
+		c.General.BacklogMinUnusedPct = 10
+	}
+	if c.General.BacklogHorizonHours == 0 {
+		c.General.BacklogHorizonHours = 24
+	}
 	c.Learning.applyDefaults()
 	for id, p := range c.Providers {
 		if p.CostClass == "" {
@@ -285,6 +293,9 @@ func (c *Config) Validate() error {
 	g := c.General
 	if g.WarnUsedPct <= 0 || g.WarnUsedPct > 100 || g.ReserveUsedPct <= 0 || g.ReserveUsedPct > 100 || g.WarnUsedPct > g.ReserveUsedPct {
 		add("general: want 0 < warn_used_pct <= reserve_used_pct <= 100, got %.1f and %.1f", g.WarnUsedPct, g.ReserveUsedPct)
+	}
+	if g.BacklogMinUnusedPct < 0 || g.BacklogMinUnusedPct > 100 || g.BacklogHorizonHours < 0 {
+		add("general: want 0 < backlog_min_unused_pct <= 100 and backlog_horizon_hours > 0, got %.1f and %.1f", g.BacklogMinUnusedPct, g.BacklogHorizonHours)
 	}
 	if len(c.Providers) == 0 {
 		add("no [providers] configured")

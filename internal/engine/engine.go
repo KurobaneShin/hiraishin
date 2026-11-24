@@ -195,7 +195,7 @@ func (e *Engine) Decide(ctx context.Context, tx *ledger.Tx, job ledger.JobRow, t
 		return scheduler.Decision{}, ledger.Event{}, err
 	}
 	d, err := scheduler.Select(scheduler.Request{
-		Job:     scheduler.Job{ID: job.ID, Role: job.Role, PinnedProvider: job.PinnedProvider, Exclude: exclude},
+		Job:     scheduler.Job{ID: job.ID, Role: job.Role, PinnedProvider: job.PinnedProvider, Exclude: exclude, Backlog: job.Backlog},
 		Trigger: trigger, Now: e.Now(), Config: e.Cfg, RuntimeProfile: profile, Prefers: prefers, Providers: providers,
 		LearnDeltas:    scheduler.LearnDeltas(e.Cfg.Learning, learned),
 		MinQualityTier: floor.Tier, MinQualityTierReason: floor.Reason, JobBurn: burn,

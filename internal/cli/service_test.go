@@ -21,12 +21,38 @@ func TestWatchServiceInstallWritesAUnitAndStartsIt(t *testing.T) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return nil
 	}
-	path, err := installWatchService(context.Background(), a, "/opt/hi raishin/hiraishin", run)
+	built := filepath.Join(dir, "go bin", "hiraishin")
+	if err := os.MkdirAll(filepath.Dir(built), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(built, []byte("new build"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stable := filepath.Join(dir, ".local", "bin", "hiraishin")
+	if err := os.MkdirAll(filepath.Dir(stable), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stable, []byte("old build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path, bin, err := installWatchService(context.Background(), a, built, run)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := filepath.Join(dir, ".config", "systemd", "user", "hiraishin-watch.service"); path != want {
 		t.Fatalf("unit path = %s, want %s", path, want)
+	}
+	if bin != stable {
+		t.Fatalf("binary path = %s, want %s", bin, stable)
+	}
+	if got, err := os.ReadFile(stable); err != nil || string(got) != "new build" {
+		t.Fatalf("stable binary = %q, %v; want the new build", got, err)
+	}
+	if fi, err := os.Stat(stable); err != nil || fi.Mode().Perm() != 0o755 {
+		t.Fatalf("stable binary mode = %v, %v; want 0755", fi.Mode().Perm(), err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(stable)); len(entries) != 1 {
+		t.Fatalf("temp files left in %s: %v", filepath.Dir(stable), entries)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -34,8 +60,9 @@ func TestWatchServiceInstallWritesAUnitAndStartsIt(t *testing.T) {
 	}
 	unit := string(raw)
 	for _, want := range []string{
-		"ExecStart=\"/opt/hi raishin/hiraishin\" watch\n",
+		"ExecStart=\"" + stable + "\" watch\n",
 		"Restart=on-failure",
+		"KillMode=process\n",
 		"Environment=\"PATH=/a b/bin:/usr/bin:/x%%y\"",
 		"Environment=\"HIRAISHIN_DATA_DIR=" + filepath.Join(dir, "data") + "\"",
 		"Environment=\"HIRAISHIN_CONFIG=" + a.paths.Config + "\"",
@@ -45,8 +72,19 @@ func TestWatchServiceInstallWritesAUnitAndStartsIt(t *testing.T) {
 			t.Errorf("unit lacks %q:\n%s", want, unit)
 		}
 	}
-	if want := []string{"systemctl --user daemon-reload", "systemctl --user enable --now hiraishin-watch.service"}; !slices.Equal(calls, want) {
+	want := []string{"systemctl --user daemon-reload", "systemctl --user enable hiraishin-watch.service", "systemctl --user restart hiraishin-watch.service"}
+	if !slices.Equal(calls, want) {
 		t.Errorf("calls = %q, want %q", calls, want)
+	}
+	calls = nil
+	if _, _, err := installWatchService(context.Background(), a, stable, run); err != nil {
+		t.Fatalf("reinstall from the stable binary: %v", err)
+	}
+	if got, err := os.ReadFile(stable); err != nil || string(got) != "new build" {
+		t.Fatalf("stable binary after reinstall from itself = %q, %v", got, err)
+	}
+	if !slices.Equal(calls, want) {
+		t.Errorf("reinstall calls = %q, want %q", calls, want)
 	}
 	calls = nil
 	if err := uninstallWatchService(context.Background(), a, run); err != nil {

@@ -10,7 +10,8 @@
     "profile",
     "watch_running",
     "providers",
-    "jobs"
+    "jobs",
+    "backlog_jobs"
   ],
   "properties": {
     "schema_version": {
@@ -27,6 +28,13 @@
       "type": "boolean"
     },
     "jobs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "backlog_jobs": {
+      "description": "Active backlog jobs (run --backlog) per state; also counted in jobs",
       "type": "object",
       "additionalProperties": {
         "type": "integer"

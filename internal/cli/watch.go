@@ -73,11 +73,11 @@ func watchCmd(a *app) *cobra.Command {
 				if exe, err = filepath.EvalSymlinks(exe); err != nil {
 					return err
 				}
-				path, err := installWatchService(ctx, a, exe, systemctl)
+				unit, bin, err := installWatchService(ctx, a, exe, systemctl)
 				if err != nil {
 					return err
 				}
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "installed %s\nhiraishin watch runs now and starts with your user session\nlogs: journalctl --user -u %s -f\n", path, watchUnitName)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "installed %s\nbinary %s\nhiraishin watch (re)started and starts with your user session; running jobs keep running\nlogs: journalctl --user -u %s -f\n", unit, bin, watchUnitName)
 				return err
 			case uninstall:
 				if err := uninstallWatchService(ctx, a, systemctl); err != nil {
@@ -113,7 +113,7 @@ func watchCmd(a *app) *cobra.Command {
 	f.DurationVar(&grace, "grace", dispatch.DefaultGrace, "wait between SIGINT, SIGTERM and SIGKILL when stopping an agent")
 	f.BoolVar(&exitWhenIdle, "exit-when-idle", false, "exit once no job is RUNNING or FAILING_OVER")
 	f.BoolVar(&noSensors, "no-sensors", false, "do not poll usage endpoints or local logs")
-	f.BoolVar(&install, "install", false, "run watch as a systemd user service that starts with your session, using this binary and PATH")
+	f.BoolVar(&install, "install", false, "copy this binary to ~/.local/bin and run watch from there as a systemd user service with this PATH; run again after a rebuild to restart it")
 	f.BoolVar(&uninstall, "uninstall", false, "stop and remove the systemd user service")
 	cmd.MarkFlagsMutuallyExclusive("install", "uninstall")
 	return cmd

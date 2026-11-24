@@ -203,7 +203,11 @@ func (e *Engine) changedFiles(ctx context.Context, job ledger.JobRow, tx *ledger
 		if err != nil {
 			continue
 		}
-		files = append(files, strings.Fields(string(out))...)
+		for f := range strings.FieldsSeq(string(out)) {
+			if !strings.HasPrefix(f, filepath.Dir(stack.GraphFile)+"/") {
+				files = append(files, f)
+			}
+		}
 	}
 	return files
 }

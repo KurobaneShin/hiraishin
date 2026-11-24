@@ -63,6 +63,7 @@ type Job struct {
 	Role           string
 	PinnedProvider string
 	Exclude        []string
+	Backlog        bool
 }
 
 type Prefer struct {
@@ -296,6 +297,11 @@ func evaluate(req Request, role config.Role, roleName, pin string, w config.Weig
 	}
 	if l.exclude[p.ID] {
 		reject("excluded for this %s", req.Trigger)
+	}
+	if req.Job.Backlog {
+		if reason := backlogShortfall(req, p, l.byID); reason != "" {
+			reject("%s", reason)
+		}
 	}
 	if len(c.Rejections) > 0 {
 		c.Status = StatusRejected

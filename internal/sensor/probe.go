@@ -30,6 +30,8 @@ type Sample struct {
 
 var ErrRateLimited = errors.New("usage endpoint rate limited")
 
+var errNoEndpoint = errors.New("no usage endpoint for this provider")
+
 const (
 	KimiUsagesURL   = "https://api.kimi.com/coding/v1/usages"
 	ZAIQuotaURL     = "https://api.z.ai/api/monitor/usage/quota/limit"
@@ -371,16 +373,18 @@ func (p *Probe) Sample(ctx context.Context, prov config.Provider) ([]Sample, err
 	f := FamilyOf(prov)
 	mode := prov.Sensor.Mode
 	var errs []error
+	hasEndpoint := false
 	if mode == "auto" || mode == "endpoint" {
 		s, err := p.endpoint(ctx, f, prov)
 		if err == nil && s != nil {
 			return s, nil
 		}
-		if err != nil {
+		hasEndpoint = !errors.Is(err, errNoEndpoint)
+		if err != nil && hasEndpoint {
 			errs = append(errs, err)
 		}
 	}
-	if mode == "auto" || mode == "local_logs" {
+	if mode == "local_logs" || (mode == "auto" && !hasEndpoint) {
 		s, err := p.localLogs(f, prov)
 		if err == nil && s != nil {
 			return s, nil
@@ -416,6 +420,8 @@ func (p *Probe) endpoint(ctx context.Context, f Family, prov config.Provider) ([
 	case f == FamilyGLM:
 		key, err = p.apiKey(prov)
 		parse = ParseZAIQuota
+	default:
+		return nil, errNoEndpoint
 	}
 	if err != nil || key == "" {
 		return nil, err

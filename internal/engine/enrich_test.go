@@ -222,7 +222,7 @@ func TestAbsentIntegrationsFallBackCleanly(t *testing.T) {
 	}
 	baseline := time.Since(start)
 	t.Logf("enrich %v, decide %v vs baseline %v, outcome %v", enrichTook, decideTook, baseline, outcomeTook)
-	if over := enrichTook + decideTook - baseline + outcomeTook; over > 50*time.Millisecond {
+	if over := enrichTook + decideTook - baseline + outcomeTook; over > absentToolBudget {
 		t.Errorf("absent tools cost %v (enrich %v, decide %v vs %v, outcome %v)", over, enrichTook, decideTook, baseline, outcomeTook)
 	}
 	for _, name := range []string{"qmd", "ai-memory", "graphify"} {

@@ -163,6 +163,7 @@ type JobQueued struct {
 	TerminalAdapter string `json:"terminal_adapter"`
 	PinnedProvider  string `json:"pinned_provider,omitempty"`
 	NeverSwitch     bool   `json:"never_switch"`
+	Backlog         bool   `json:"backlog,omitempty"`
 }
 
 type JobDispatched struct {

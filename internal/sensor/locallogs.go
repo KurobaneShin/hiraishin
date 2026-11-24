@@ -2,8 +2,10 @@ package sensor
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -300,10 +302,28 @@ func scanLines(path string, each func([]byte)) error {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64<<10), maxLogLine)
-	for sc.Scan() {
-		each(sc.Bytes())
+	r := bufio.NewReaderSize(f, 64<<10)
+	var long []byte
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			long = append(long, chunk[:min(len(chunk), max(maxLogLine-len(long), 0))]...)
+			continue
+		}
+		line := chunk
+		if long != nil {
+			long = append(long, chunk[:min(len(chunk), max(maxLogLine-len(long), 0))]...)
+			line = long
+		}
+		if len(line) > 0 {
+			each(bytes.TrimSuffix(bytes.TrimSuffix(line, []byte("\n")), []byte("\r")))
+		}
+		long = nil
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return sc.Err()
 }

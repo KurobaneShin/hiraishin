@@ -289,31 +289,33 @@ func (m topModel) renderJobs(wtWidth, nameWidth int) []string {
 	jobs := slices.Clone(m.data.jobs)
 	slices.SortStableFunc(jobs, func(a, b ledger.JobRow) int { return strings.Compare(a.WorktreePath, b.WorktreePath) })
 	wtWidth, nameWidth = min(wtWidth, maxLen(jobs, func(j ledger.JobRow) string { return filepath.Base(j.WorktreePath) })), min(nameWidth, maxLen(jobs, func(j ledger.JobRow) string { return j.Name }))
-	perState := map[string]int{}
+	perState, backlog := map[string]int{}, map[string]int{}
 	for _, j := range jobs {
 		perState[j.State]++
-	}
-	var counts []string
-	for _, s := range []string{ledger.JobRunningState, ledger.JobDispatchingState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState, ledger.JobQueuedState} {
-		if n := perState[s]; n > 0 {
-			counts = append(counts, fmt.Sprintf("%d %s", n, jobStateLabel(s)))
+		if j.Backlog {
+			backlog[j.State]++
 		}
 	}
-	out := []string{" " + pal.paint(bold, "jobs") + "  " + strings.Join(counts, pal.paint(dim, " · "))}
+	out := []string{" " + pal.paint(bold, "jobs") + "  " + strings.Join(jobCountParts(perState, backlog), pal.paint(dim, " · "))}
 	for i, j := range jobs {
 		wt := ""
 		if i == 0 || jobs[i-1].WorktreePath != j.WorktreePath {
 			wt = filepath.Base(j.WorktreePath)
 		}
-		color := yellow
-		switch j.State {
-		case ledger.JobRunningState:
+		color, label, tag := yellow, jobStateLabel(j.State), ""
+		switch {
+		case backlogWaiting(j):
+			color, label = dim, "backlog wait"
+		case j.State == ledger.JobRunningState:
 			color = green
-		case ledger.JobQueuedState:
+		case j.State == ledger.JobQueuedState:
 			color = dim
 		}
-		out = append(out, fmt.Sprintf("   %-*s  %-*s  %s  %-8s  %s", wtWidth, truncate(clean(wt), wtWidth), nameWidth, truncate(clean(j.Name), nameWidth),
-			pal.paint(color, fmt.Sprintf("%-13s", jobStateLabel(j.State))), truncate(clean(cmp.Or(j.CurrentProvider, "-")), 8), pal.paint(dim, duration(m.clock.Sub(j.UpdatedAt)))))
+		if j.Backlog && !backlogWaiting(j) {
+			tag = "  " + pal.paint(dim, "backlog")
+		}
+		out = append(out, fmt.Sprintf("   %-*s  %-*s  %s  %-8s  %s%s", wtWidth, truncate(clean(wt), wtWidth), nameWidth, truncate(clean(j.Name), nameWidth),
+			pal.paint(color, fmt.Sprintf("%-13s", label)), truncate(clean(cmp.Or(j.CurrentProvider, "-")), 8), pal.paint(dim, duration(m.clock.Sub(j.UpdatedAt))), tag))
 	}
 	return out
 }

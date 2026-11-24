@@ -47,6 +47,12 @@ failover_wait_max_min = 50
 # explicitly enabled in both [general] and the provider's own entry.
 allow_metered_fallback = false
 
+# Backlog jobs (`hiraishin run --backlog`) run only on quota forecast to go
+# unused: some window resetting within backlog_horizon_hours must leave at least
+# backlog_min_unused_pct unused at its reset, after the burn of jobs already running.
+backlog_min_unused_pct = 10.0
+backlog_horizon_hours = 24.0
+
 # ---------------------------------------------------------------------------
 # Objective profile weights (used when active_profile = "custom" or to inspect
 # built-in presets; weights are normalized to sum to 1.0 before scoring).
@@ -156,6 +162,8 @@ duration_hours = 5             # Used for rolling window reset estimates
 # Sensor chain order for this provider (first working tier wins).
 [providers.<provider_id>.sensor]
 mode = "auto"                  # "auto" | "endpoint" | "local_logs" | "output_regex" | "none"
+                               # auto: the usage endpoint when the provider has one, else local logs
+                               # (an endpoint that fails or has no valid token leaves the last sample)
 poll_interval_sec = 120        # Minimum poll interval (respect vendor rate limits)
 quota_axi_fallback = false     # Allow calling `quota-axi --json` as a sensor probe
 
@@ -575,6 +583,7 @@ A candidate provider $p$ is immediately rejected (and its rejection reason logge
 7. `p.active_jobs < p.max_concurrent` when `max_concurrent > 0`
 8. Quota brake, for every window of `p` with a measured burn per job: `used_pct + rate × horizon < reserve_used_pct`, where `rate` is the burn per job of `p` plus the burn per job of every job already running on the pool (each at its own provider's estimate, or at `p`'s when that provider has none), and `horizon` is `min(time to reset, typical job duration of p)`. The burn per job is the duration-weighted mean of the newest 20 `quota.job_burn` measurements for that provider and window (a median would read 0 on windows reported in whole percent, where most short jobs see no step), and the typical duration is their median; the watcher records one per window when an attempt ends, splitting each sample interval equally between the jobs running on the pool at that time. Usage outside hiraishin on the same account counts as job usage, so the estimate errs high. Without a measurement there is no brake.
 9. Every window of `p` (and its `shared_quota_pool`, if set) has `used_pct < reserve_used_pct` (or `< 100.0` during failover when `reserve_allow_failover = true`; the quota brake uses the same limit)
+10. Backlog jobs only: some window of `p` with a burn forecast that resets within `backlog_horizon_hours` has `(100 - used_pct) × perishable_waste_risk - running burn ≥ backlog_min_unused_pct`. The waste risk is the one `status` shows as "left unused at reset" (already capped by longer windows), and the running burn is, per pool member, `active jobs × burn per job × min(time to reset, typical job duration)`. It double-counts jobs whose burn the forecast already sees, so a backlog job errs toward waiting. A backlog job keeps the rule on failover. Without a forecast (the first 30 minutes of a window, or no watch running) it waits.
 
 If zero candidates pass Stage 1, the job transitions to `WAITING_QUOTA` and records the earliest `resets_at` among blocked allowed providers.
 

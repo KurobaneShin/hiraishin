@@ -544,3 +544,54 @@ func TestQuotaBrakeCountsTheJobsAlreadyRunningOnThePool(t *testing.T) {
 		t.Errorf("without a measurement for kimi there is no brake and no fixed cap: %v", c.Rejections)
 	}
 }
+
+func TestBacklogRunsOnlyOnQuotaForecastToGoUnused(t *testing.T) {
+	cfg := baseConfig()
+	cfg.General.BacklogMinUnusedPct, cfg.General.BacklogHorizonHours = 10, 24
+	burn := map[string]map[string]JobBurn{"kimi": {"5h": {PctPerHour: 10, DurationMin: 60}}}
+	decide := func(backlog bool, kimiActive int, edit func(map[string]*Provider)) Decision {
+		ps := snapshot(cfg, func(m map[string]*Provider) {
+			m["kimi"].ActiveJobs = kimiActive
+			for _, id := range []string{"kimi", "agy", "sonnet"} {
+				setWindow(m[id], "5h", 40, now.Add(3*time.Hour))
+				setWindow(m[id], "weekly", 10, now.Add(6*24*time.Hour))
+			}
+			m["kimi"].Windows[0].Forecast = paced(5, 0.5, false, 3*time.Hour)
+			m["agy"].Windows[0].Forecast = paced(15, 0.1, false, 3*time.Hour)
+			if edit != nil {
+				edit(m)
+			}
+		})
+		d, err := Select(Request{Job: Job{ID: "j", Role: "gameplay", Backlog: backlog}, Trigger: TriggerInitial, Now: now, Config: cfg, Providers: ps, JobBurn: burn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	d := decide(true, 0, nil)
+	if d.ChosenProvider != "kimi" {
+		t.Fatalf("60%% left x 0.5 risk = 30%% unused, want kimi chosen: %s", d.Summary)
+	}
+	if c := candidate(t, d, "agy"); c.Status != StatusRejected || !strings.Contains(c.Rejections[0], "backlog: 5h leaves ~6% unused") {
+		t.Errorf("agy wastes 6%% < 10%%, want rejected: %v", c.Rejections)
+	}
+	if c := candidate(t, d, "sonnet"); c.Status != StatusRejected || !strings.Contains(c.Rejections[0], "no window with a burn forecast resets within 24h") {
+		t.Errorf("sonnet has no forecast, want rejected: %v", c.Rejections)
+	}
+	if d := decide(true, 2, nil); d.ChosenProvider != "kimi" {
+		t.Errorf("30%% unused - 2 running x 10%%/h x 1h = 10%%, still enough: %s", d.Summary)
+	}
+	if c := candidate(t, decide(true, 3, nil), "kimi"); c.Status != StatusRejected {
+		t.Errorf("30%% unused - 3 running x 10%%/h x 1h = 0%%, want rejected: %+v", c)
+	}
+	far := decide(true, 0, func(m map[string]*Provider) {
+		m["kimi"].Windows[0].Forecast = nil
+		m["kimi"].Windows[1].Forecast = paced(0, 1, false, 6*24*time.Hour)
+	})
+	if c := candidate(t, far, "kimi"); c.Status != StatusRejected || !strings.Contains(c.Rejections[0], "within 24h") {
+		t.Errorf("a weekly window resetting in 6 days is past the horizon: %v", c.Rejections)
+	}
+	if d := decide(false, 0, nil); candidate(t, d, "sonnet").Status == StatusRejected {
+		t.Errorf("a normal job must ignore the backlog rule: %v", candidate(t, d, "sonnet").Rejections)
+	}
+}

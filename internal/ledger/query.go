@@ -46,6 +46,7 @@ type JobRow struct {
 	NativeSessionID string
 	PinnedProvider  string
 	NeverSwitch     bool
+	Backlog         bool
 	FailoverCount   int
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -166,18 +167,18 @@ func (t *Tx) Windows(ctx context.Context) ([]WindowRow, error) {
 	return out, rows.Err()
 }
 
-const jobColumns = `job_id, name, role, state, worktree_path, branch, brief_path, report_path, current_provider, terminal_adapter, terminal_handle, native_session_id, pinned_provider, never_switch, failover_count, created_at, updated_at`
+const jobColumns = `job_id, name, role, state, worktree_path, branch, brief_path, report_path, current_provider, terminal_adapter, terminal_handle, native_session_id, pinned_provider, never_switch, backlog, failover_count, created_at, updated_at`
 
 func scanJob(s interface{ Scan(...any) error }) (JobRow, error) {
 	var j JobRow
 	var report, current, handle, session, pinned, created, updated sql.NullString
-	var never int
-	err := s.Scan(&j.ID, &j.Name, &j.Role, &j.State, &j.WorktreePath, &j.Branch, &j.BriefPath, &report, &current, &j.TerminalAdapter, &handle, &session, &pinned, &never, &j.FailoverCount, &created, &updated)
+	var never, backlog int
+	err := s.Scan(&j.ID, &j.Name, &j.Role, &j.State, &j.WorktreePath, &j.Branch, &j.BriefPath, &report, &current, &j.TerminalAdapter, &handle, &session, &pinned, &never, &backlog, &j.FailoverCount, &created, &updated)
 	if err != nil {
 		return JobRow{}, err
 	}
 	j.ReportPath, j.CurrentProvider, j.TerminalHandle, j.NativeSessionID, j.PinnedProvider = report.String, current.String, handle.String, session.String, pinned.String
-	j.NeverSwitch = never != 0
+	j.NeverSwitch, j.Backlog = never != 0, backlog != 0
 	j.CreatedAt, j.UpdatedAt = parseTime(created), parseTime(updated)
 	return j, nil
 }

@@ -20,7 +20,7 @@ import (
 
 type runOpts struct {
 	role, worktree, brief, name, report, adapter, provider string
-	neverSwitch, dryRun, noSensors                         bool
+	neverSwitch, dryRun, noSensors, backlog                bool
 }
 
 type runDoc struct {
@@ -64,7 +64,10 @@ func runCmd(a *app) *cobra.Command {
 			out := cmd.OutOrStdout()
 			if doc.Dispatch == nil {
 				next := "a provider resets"
-				if len(doc.Decision.FullProviders) > 0 {
+				switch {
+				case o.backlog:
+					next = "a provider is forecast to leave quota unused at its reset"
+				case len(doc.Decision.FullProviders) > 0:
 					next = "a slot frees"
 				}
 				_, err = fmt.Fprintf(out, "Job %s waits (state WAITING_QUOTA). %s\nhiraishin watch dispatches it when %s.\n", doc.Job.ID, doc.Decision.Summary, next)
@@ -84,6 +87,7 @@ func runCmd(a *app) *cobra.Command {
 	f.StringVar(&o.adapter, "adapter", "", "terminal adapter: process, tmux or orca (default: general.default_terminal_adapter)")
 	f.StringVar(&o.provider, "provider", "", "pin the job to one provider (implies --never-switch)")
 	f.BoolVar(&o.neverSwitch, "never-switch", false, "wait for quota instead of switching providers mid-job")
+	f.BoolVar(&o.backlog, "backlog", false, "run only on quota that would otherwise go unused before its reset; waits until some does")
 	f.BoolVar(&o.dryRun, "dry-run", false, "show which provider the job would get and why, without queuing or launching it")
 	f.BoolVar(&o.noSensors, "no-sensors", false, "with --dry-run: decide on the last recorded usage without polling usage endpoints")
 	f.BoolVar(&asJSON, "json", false, "print JSON (run.schema.json; why.schema.json with --dry-run)")
@@ -109,7 +113,7 @@ func (a *app) pickProvider(ctx context.Context, o runOpts) (whyDoc, error) {
 			return whyDoc{}, err
 		}
 	}
-	job := ledger.JobRow{ID: "dry-run", Name: cmp.Or(o.name, "nothing dispatched"), Role: o.role, PinnedProvider: o.provider}
+	job := ledger.JobRow{ID: "dry-run", Name: cmp.Or(o.name, "nothing dispatched"), Role: o.role, PinnedProvider: o.provider, Backlog: o.backlog}
 	d, _, err := e.Decide(ctx, e.Ledger.Reader(), job, scheduler.TriggerDryRun, nil, e.TierFloor(ctx, job), e.Outlook(ctx))
 	if err != nil {
 		return whyDoc{}, err
@@ -160,6 +164,7 @@ func (a *app) dispatch(ctx context.Context, o runOpts, source string) (runDoc, e
 		ID: ledger.NewID("job"), Name: cmp.Or(o.name, filepath.Base(filepath.Dir(brief))), Role: o.role,
 		WorktreePath: wt, Branch: cp.Branch, BriefPath: brief, ReportPath: report, TerminalAdapter: adapter,
 		PinnedProvider: o.provider, NeverSwitch: o.neverSwitch || o.provider != "" || role.NeverSwitchMidTask,
+		Backlog: o.backlog,
 	}
 	d, err := e.QueueFrom(ctx, job, source)
 	if err != nil {

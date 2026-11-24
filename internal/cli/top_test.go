@@ -254,3 +254,17 @@ func TestTopNeedsATerminal(t *testing.T) {
 		t.Fatalf("stderr = %q", h.err.String())
 	}
 }
+
+func TestTopMarksBacklogJobs(t *testing.T) {
+	m := topFixture(140, 40)
+	now := m.clock
+	m.data.jobs = append(m.data.jobs,
+		ledger.JobRow{ID: "job_5", Name: "flaky-tests", State: ledger.JobWaitingQuotaState, Backlog: true, WorktreePath: "/wt/chores", UpdatedAt: now.Add(-5 * time.Minute)},
+		ledger.JobRow{ID: "job_6", Name: "docs-sweep", State: ledger.JobRunningState, Backlog: true, CurrentProvider: "glm-b", WorktreePath: "/wt/chores", UpdatedAt: now.Add(-2 * time.Minute)})
+	out := strings.Join(m.renderJobs(40, 40), "\n")
+	for _, want := range []string{"4 running · 1 waiting quota · 1 backlog waiting for quota that would go unused", "flaky-tests                     backlog wait", "docs-sweep                      running        glm-b     2m  backlog"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("top jobs lack %q:\n%s", want, out)
+		}
+	}
+}

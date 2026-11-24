@@ -109,6 +109,44 @@ func TestRunWaitsForQuotaWhenAllPaused(t *testing.T) {
 	}
 }
 
+func TestRunBacklogWaitsUntilSomeQuotaWouldGoUnused(t *testing.T) {
+	h := newHarness(t)
+	wt, brief := worktree(t)
+	out := h.run(0, "run", "--backlog", "--brief", brief, "--worktree", wt)
+	job, attempts := h.job(jobIDRe.FindString(out))
+	if !job.Backlog || job.State != ledger.JobWaitingQuotaState || len(attempts) != 0 || !strings.Contains(out, "forecast to leave quota unused") {
+		t.Fatalf("out = %q job = %+v", out, job)
+	}
+	if why := h.run(0, "why", job.ID); !strings.Contains(why, "backlog: no window with a burn forecast resets within 24h") {
+		t.Fatalf("why does not explain the backlog wait:\n%s", why)
+	}
+	h.run(0, "pause", "kimi")
+	h.run(0, "pause", "agy")
+	normal := jobIDRe.FindString(h.run(0, "run", "--brief", brief, "--worktree", wt))
+	if st := h.run(0, "status", "--no-sensors"); !strings.Contains(st, "1 waiting quota · 1 backlog waiting for quota that would go unused") {
+		t.Fatalf("status does not split backlog from quota waits:\n%s", st)
+	}
+	if list := h.run(0, "backlog"); !strings.Contains(list, job.ID) || !strings.Contains(list, "waiting") || strings.Contains(list, normal) {
+		t.Fatalf("backlog list:\n%s", list)
+	}
+	if js := h.run(0, "backlog", "--json"); !strings.Contains(js, `"id": "`+job.ID+`"`) {
+		t.Fatalf("backlog --json:\n%s", js)
+	}
+	h.run(2, "backlog", "rm", normal)
+	if !strings.Contains(h.err.String(), "not a backlog job") {
+		t.Fatalf("rm of a normal job: %s", h.err.String())
+	}
+	if out := h.run(0, "backlog", "rm", job.ID); !strings.Contains(out, "Removed "+job.ID) {
+		t.Fatalf("rm: %s", out)
+	}
+	if removed, _ := h.job(job.ID); removed.State != ledger.JobCancelledState {
+		t.Fatalf("removed job state = %s", removed.State)
+	}
+	if list := h.run(0, "backlog"); !strings.Contains(list, "No backlog jobs") {
+		t.Fatalf("backlog after rm:\n%s", list)
+	}
+}
+
 func TestCancelStopsAgent(t *testing.T) {
 	agentBin(t, "kimi", `exec sleep 30`)
 	h := newHarness(t)

@@ -10,6 +10,7 @@ import (
 type Handler func(context.Context, json.RawMessage) (any, error)
 
 type Handlers struct {
+	Version      string
 	Status       Handler
 	Why          Handler
 	PickProvider Handler
@@ -20,7 +21,7 @@ type Handlers struct {
 }
 
 func New(handlers Handlers) *sdk.Server {
-	server := sdk.NewServer(&sdk.Implementation{Name: "hiraishin", Version: "0.2"}, nil)
+	server := sdk.NewServer(&sdk.Implementation{Name: "hiraishin", Version: handlers.Version}, nil)
 	add(server, "hiraishin_status", "Show providers, quota windows, slots and active jobs", handlers.Status, []string{}, map[string]any{
 		"no_sensors": map[string]any{"type": "boolean", "description": "Use recorded usage without polling sensors"},
 	})
@@ -67,6 +68,7 @@ func runProperties(dispatch bool) map[string]any {
 		"name":         map[string]any{"type": "string"},
 		"provider":     map[string]any{"type": "string"},
 		"never_switch": map[string]any{"type": "boolean"},
+		"backlog":      map[string]any{"type": "boolean", "description": "Run only on quota forecast to go unused before its reset"},
 	}
 	if dispatch {
 		properties["brief"] = map[string]any{"type": "string", "description": "Absolute or relative path to the task brief"}

@@ -81,6 +81,7 @@ func (e *Engine) QueueFrom(ctx context.Context, job ledger.JobRow, source string
 		queued := ledger.Event{JobID: job.ID, Source: source, Payload: ledger.JobQueued{
 			Name: job.Name, Role: job.Role, WorktreePath: job.WorktreePath, Branch: job.Branch, BriefPath: job.BriefPath,
 			ReportPath: job.ReportPath, TerminalAdapter: job.TerminalAdapter, PinnedProvider: job.PinnedProvider, NeverSwitch: job.NeverSwitch,
+			Backlog: job.Backlog,
 		}}
 		var dec ledger.Event
 		var err error

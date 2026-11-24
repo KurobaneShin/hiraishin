@@ -44,8 +44,8 @@ Before writing production code:
 **Goal:** Turn `hiraishin` into an agent-callable control plane with predictive burn-rate forecasting, full 6-provider coverage, bounded outcome learning, and optional `ai-memory`/`qmd`/`graphify` enrichment.
 
 ### Scope
-- **MCP Server (`hiraishin mcp`):** Local stdio server exposing `hiraishin_status`, `hiraishin_why`, `hiraishin_forecast`, `hiraishin_pick_provider`, `hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, `hiraishin_pin`.
-- **Forecasting Engine:** EWMA burn rate (`pct_per_hour`), `time_to_empty`, `time_to_reset`, and `perishable_waste_risk` computed from `sensor.quota_sampled` history; proactive `DEGRADED` warning before exhaustion.
+- **MCP Server (`hiraishin mcp`):** Local stdio server exposing `hiraishin_status`, `hiraishin_why`, `hiraishin_pick_provider`, `hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, `hiraishin_pin`. Forecasts ship inside `hiraishin_status` (each window carries its `forecast`), so there is no separate `hiraishin_forecast` tool.
+- **Forecasting Engine:** EWMA burn rate (`pct_per_hour`), `time_to_empty`, `time_to_reset`, and `perishable_waste_risk` computed from `sensor.quota_sampled` history. A window forecast to run out before its reset is shown in `status`/`top` ("runs out in X, before reset"); `DEGRADED` itself stays rule-based (cooldown or `used_pct >= warn_used_pct`) so a forecast never blocks routing.
 - **Additional Providers:**
   - OpenAI Codex CLI (`codex exec --json`, `codex exec resume`, `~/.codex/sessions/**/rollout-*.jsonl` sensor).
   - Google Gemini CLI (`gemini -p --output-format stream-json`, two-step 65s RPM vs. daily RPD probe, `America/Los_Angeles` midnight reset).

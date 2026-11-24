@@ -133,9 +133,9 @@ func (t *Tx) project(ctx context.Context, ev *Event) error {
 	case DecisionMade:
 		return t.projectDecision(ctx, ev, p, ts)
 	case JobQueued:
-		return t.exec(ctx, `INSERT INTO jobs(job_id, name, role, state, worktree_path, branch, brief_path, report_path, terminal_adapter, pinned_provider, never_switch, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			ev.JobID, p.Name, p.Role, JobQueuedState, p.WorktreePath, p.Branch, p.BriefPath, nullString(p.ReportPath), p.TerminalAdapter, nullString(p.PinnedProvider), boolInt(p.NeverSwitch), ts, ts)
+		return t.exec(ctx, `INSERT INTO jobs(job_id, name, role, state, worktree_path, branch, brief_path, report_path, terminal_adapter, pinned_provider, never_switch, backlog, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			ev.JobID, p.Name, p.Role, JobQueuedState, p.WorktreePath, p.Branch, p.BriefPath, nullString(p.ReportPath), p.TerminalAdapter, nullString(p.PinnedProvider), boolInt(p.NeverSwitch), boolInt(p.Backlog), ts, ts)
 	case JobDispatched:
 		if err := t.exec(ctx, `INSERT INTO job_attempts(attempt_id, job_id, attempt_num, provider_id, decision_id, attempt_dir, start_commit, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			p.AttemptID, ev.JobID, p.AttemptNum, p.ProviderID, p.DecisionID, p.AttemptDir, nullString(p.StartCommit), ts); err != nil {

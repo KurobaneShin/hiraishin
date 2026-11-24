@@ -110,23 +110,25 @@ func TestLocalLogs(t *testing.T) {
 	lines := `{"timestamp":"2026-11-21T14:00:00Z","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":9999}}}
 {"timestamp":"2026-11-21T08:00:00Z","message":{"usage":{"input_tokens":7777,"output_tokens":1}}}
 not json
+{"timestamp":"2026-11-21T14:00:00Z","message":{"content":"` + strings.Repeat("x", maxLogLine+1) + `","usage":{"input_tokens":5000}}}
+{"timestamp":"2026-11-21T14:30:00Z","message":{"usage":{"input_tokens":40}}}
 `
 	if err := os.WriteFile(filepath.Join(dir, "s.jsonl"), []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	n, err := ClaudeTokens(ClaudeDir(config.Provider{}, home), now.Add(-5*time.Hour))
-	if err != nil || n != 160 {
-		t.Fatalf("claude tokens = %d, %v; want 160", n, err)
+	if err != nil || n != 200 {
+		t.Fatalf("claude tokens = %d, %v; want 200 (oversized line skipped, the lines after it counted)", n, err)
 	}
 	agy := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c1", ".system_generated", "logs")
 	if err := os.MkdirAll(agy, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(agy, "transcript.jsonl"), []byte("{}\n{}\n{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(agy, "transcript.jsonl"), []byte("{}\n{"+strings.Repeat("x", maxLogLine+1)+"}\r\n\n{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	turns, err := AgyTurns(home, time.Time{})
-	if err != nil || turns != 3 {
+	if err != nil || turns != 4 {
 		t.Fatalf("agy turns = %d, %v", turns, err)
 	}
 	if got := ClaudeDir(config.Provider{ConfigDir: "~/profiles/b"}, home); got != filepath.Join(home, "profiles", "b") {
@@ -141,9 +143,14 @@ not json
 	}
 	p := &Probe{Home: home, Now: func() time.Time { return now }}
 	prov := config.Provider{Harness: config.HarnessClaudeCode, Sensor: config.Sensor{Mode: "local_logs"}, Windows: []config.Window{{Name: "5h", Kind: "rolling", DurationHours: 5}}}
-	if s, err := p.Sample(context.Background(), prov); err != nil || len(s) != 1 || *s[0].RawTokens != 160 {
+	if s, err := p.Sample(context.Background(), prov); err != nil || len(s) != 1 || *s[0].RawTokens != 200 {
 		t.Fatalf("default account sample = %+v %v", s, err)
 	}
+	prov.Sensor.Mode = "auto"
+	if s, err := p.Sample(context.Background(), prov); err != nil || s != nil {
+		t.Fatalf("auto without a usable token must keep the last endpoint sample, not read logs that carry no percentage: %+v %v", s, err)
+	}
+	prov.Sensor.Mode = "local_logs"
 	prov.ConfigDir = shared
 	if s, err := p.Sample(context.Background(), prov); err != nil || s != nil {
 		t.Fatalf("symlinked projects must not be attributed to this account: %+v %v", s, err)

@@ -52,6 +52,7 @@ type statusDoc struct {
 	WatchRunning  bool             `json:"watch_running"`
 	Providers     []statusProvider `json:"providers"`
 	Jobs          map[string]int   `json:"jobs"`
+	BacklogJobs   map[string]int   `json:"backlog_jobs"`
 }
 
 func statusCmd(a *app) *cobra.Command {
@@ -170,9 +171,12 @@ func buildStatus(snap []scheduler.Provider, rows []ledger.ProviderRow, burn map[
 	for _, r := range rows {
 		lastErr[r.ID], harness[r.ID] = r.LastError, r.Harness
 	}
-	doc := statusDoc{SchemaVersion: 1, GeneratedAt: now.UTC(), Profile: profile, Providers: []statusProvider{}, Jobs: map[string]int{}}
+	doc := statusDoc{SchemaVersion: 1, GeneratedAt: now.UTC(), Profile: profile, Providers: []statusProvider{}, Jobs: map[string]int{}, BacklogJobs: map[string]int{}}
 	for _, j := range jobs {
 		doc.Jobs[j.State]++
+		if j.Backlog {
+			doc.BacklogJobs[j.State]++
+		}
 	}
 	for _, p := range snap {
 		sp := statusProvider{ID: p.ID, Harness: cmp.Or(harness[p.ID], p.Config.Harness), Pool: p.Config.SharedQuotaPool, State: scheduler.EffectiveState(p, warn, now),
@@ -241,13 +245,7 @@ func renderStatus(out io.Writer, doc statusDoc, warn, reserve float64, pal palet
 			}
 		}
 	}
-	if len(doc.Jobs) > 0 {
-		var parts []string
-		for _, s := range []string{ledger.JobRunningState, ledger.JobDispatchingState, ledger.JobFailingOverState, ledger.JobWaitingQuotaState, ledger.JobQueuedState} {
-			if n := doc.Jobs[s]; n > 0 {
-				parts = append(parts, fmt.Sprintf("%d %s", n, strings.ToLower(strings.ReplaceAll(s, "_", " "))))
-			}
-		}
+	if parts := jobCountParts(doc.Jobs, doc.BacklogJobs); len(parts) > 0 {
 		fmt.Fprintf(&b, "\n %s %s\n", pal.paint(bold, "jobs"), strings.Join(parts, pal.paint(dim, " · ")))
 	}
 	if !doc.WatchRunning {

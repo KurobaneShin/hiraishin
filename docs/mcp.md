@@ -16,9 +16,9 @@ The server inherits `HIRAISHIN_CONFIG`, `HIRAISHIN_DATA_DIR`, `HOME`, and the ot
 | `hiraishin_drain` | `drain --json` | `provider` |
 | `hiraishin_pin` | `pin --json` | `job_id`, `provider` |
 
-Status and provider selection accept `no_sensors`. Selection and dispatch accept `role`, `name`, `provider`, and `never_switch`; dispatch also accepts `worktree`, `report`, and `adapter`. Pause and drain accept `reason`. Why accepts `all`.
+Status and provider selection accept `no_sensors`. Selection and dispatch accept `role`, `name`, `provider`, `never_switch`, and `backlog`; dispatch also accepts `worktree`, `report`, and `adapter`. Pause and drain accept `reason`. Why accepts `all`.
 
-`hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, and `hiraishin_pin` mutate the ledger. Dispatch can also start an agent process. `hiraishin_forecast` is not part of this server front.
+`hiraishin_dispatch`, `hiraishin_pause`, `hiraishin_drain`, and `hiraishin_pin` mutate the ledger. Dispatch can also start an agent process. There is no `hiraishin_forecast` tool: every window in `hiraishin_status` carries its `forecast` (burn rate, time to empty, waste risk).
 
 ## Claude Code
 

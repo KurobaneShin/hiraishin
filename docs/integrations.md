@@ -172,7 +172,7 @@ max_context_tokens = 1500
 | `ai-memory` | `internal/stack/memory_test.go` (mock MCP HTTP server, SSE and JSON); `TestFailoverPromptCarriesStackContextAndRecordsTheOutcome` in `internal/watch` (recovery block and outcome page) | `TestMemoryUnreachableIsUnavailableAndFast`, `TestStdioTransportIsSkippedNotMisrouted` |
 | `qmd` | `internal/stack/qmd_test.go` (fake `qmd` binary); `internal/watch` failover test | `TestFindDocsWithoutQmdIsUnavailableAndFast` |
 | `graphify` | `internal/stack/graph_test.go`; `TestGraphSizingRaisesMinQualityTier` in `internal/engine`; `internal/watch` failover test | `TestLoadGraphAbsentIsUnavailable` |
-| all three | `TestResumePromptCarriesAllThreeIntegrations` in `internal/engine` | `TestAbsentIntegrationsFallBackCleanly` in `internal/engine`: all three enabled but absent, empty enrichment, unchanged tier, only debug logs, total overhead under 50 ms |
+| all three | `TestResumePromptCarriesAllThreeIntegrations` in `internal/engine` | `TestAbsentIntegrationsFallBackCleanly` in `internal/engine`: all three enabled but absent, empty enrichment, unchanged tier, only debug logs, total overhead under 50 ms (400 ms under `-race`) |
 
 ## Summary Matrix: Enabled vs. Absent
 
